@@ -8,7 +8,7 @@ def single_room(name: str = "box", w: float = 4.0, d: float = 3.2, ceiling: floa
                 door: bool = True, window: bool = True, furniture: bool = False) -> PropertySpec:
     furn = []
     if furniture:
-        furn = [((0.3, 0.3, 0.0), (2.2, 1.2, 0.8), (0.45, 0.35, 0.55)),   # sofa
+        furn = [((1.0, d - 0.9, 0.0), (2.9, d - 0.1, 0.8), (0.45, 0.35, 0.55)),   # sofa under the window
                 ((w - 0.7, d - 1.6, 0.0), (w - 0.1, d - 0.2, 2.0), (0.6, 0.5, 0.4))]  # wardrobe
     ops = []
     if door:

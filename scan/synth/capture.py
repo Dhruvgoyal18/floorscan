@@ -87,10 +87,12 @@ def walk_trajectory(spec: PropertySpec, walk: list[str], rng: np.random.Generato
     visited = set()
     pos = _sweep_spots(spec.room(walk[0]))[0]
 
+    state = np.zeros(4)  # smooth handheld wobble: AR(1) on height, yaw, pitch, roll
+
     def cam(p2, yaw, pitch):
-        h = 1.45 + rng.normal(0, 0.03)
-        return look_at(np.array([p2[0], p2[1], h]), yaw + rng.normal(0, 0.01), pitch + rng.normal(0, 0.01),
-                       rng.normal(0, 0.015))
+        nonlocal state
+        state = 0.8 * state + rng.normal(0, 1, 4) * np.array([0.006, 0.004, 0.004, 0.005])
+        return look_at(np.array([p2[0], p2[1], 1.45 + state[0] * 3]), yaw + state[1], pitch + state[2], state[3])
 
     def walk_to(p_from, p_to):
         seg = p_to - p_from
@@ -308,8 +310,8 @@ def write_photos(out_dir: Path, spec: PropertySpec, rooms: list[str], seed: int 
     """One folder per room, numbered in walk order. 0.5x ultra-wide (13 mm equiv) as the protocol says."""
     rng = np.random.default_rng(seed)
     scene = scene or build_scene(spec)
-    hfov = 2 * np.degrees(np.arctan(18.0 / IPHONE_UW_35MM))  # 35mm-equiv: 36 mm frame width
-    K = K_from_hfov(w, h, hfov)
+    f = IPHONE_UW_35MM * np.hypot(w, h) / 43.27  # CIPA 35mm-equivalent is defined on the diagonal
+    K = np.array([[f, 0, w / 2], [0, f, h / 2], [0, 0, 1.0]])
     n = 0
     for k, rn in enumerate(rooms):
         folder = out_dir / f"{k + 1:02d}_{rn}"
