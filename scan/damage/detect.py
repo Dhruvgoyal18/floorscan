@@ -60,7 +60,7 @@ class DamageRegion:
     width: Estimate
     height: Estimate
     bbox: tuple          # (u0, v0, u1, v1) on the surface
-    centroid_height: float
+    centroid_height: Estimate
     score: float
     n_views: int
     length: float = 0.0
@@ -76,7 +76,10 @@ def _surfaces(room: RoomEst) -> list[Surface]:
             continue
         out.append(Surface(w.id, "wall", room, k, w.start.copy(), d / L, (L, H)))
     mn, mx = room.polygon.min(0), room.polygon.max(0)
-    out.append(Surface(f"{room.id}C", "ceiling", room, None, mn.copy(), np.array([1.0, 0]), tuple(mx - mn)))
+    from shapely.geometry import Polygon as _Poly
+    c = Surface(f"{room.id}C", "ceiling", room, None, mn.copy(), np.array([1.0, 0]), tuple(mx - mn))
+    c.room_poly = _Poly(room.polygon).buffer(-0.05)
+    out.append(c)
     for s in out:
         shape = (int(np.ceil(s.size[0] / RES)) + 1, int(np.ceil(s.size[1] / RES)) + 1)
         s.votes, s.seen = np.zeros(shape, np.float32), np.zeros(shape, np.float32)
@@ -116,6 +119,9 @@ def detect_damage(obs: Observations, plan: PlanEst, max_views: int = 80, work_wi
             img = cv2.resize(img, (work_width, int(round(img.shape[0] * s))), interpolation=cv2.INTER_AREA)
         h, w = img.shape[:2]
         dh, dw = f.depth.shape
+        if abs(w / h - dw / dh) > 0.02:
+            # image and depth must share framing (same crop); otherwise colour lands on the wrong geometry
+            continue
         depth = cv2.resize(f.depth, (w, h), interpolation=cv2.INTER_LINEAR)
         dmin = cv2.erode(cv2.resize(f.depth, (w, h), interpolation=cv2.INTER_NEAREST), np.ones((3, 3), np.uint8))
         depth[dmin <= 0] = 0
@@ -155,10 +161,14 @@ def detect_damage(obs: Observations, plan: PlanEst, max_views: int = 80, work_wi
                     (Pp[..., 2] > 0.03) & (Pp[..., 2] < room.height.value - 0.03) & (np.abs(nrm[..., a]) > 0.85)
                 vv = Pp[..., 2]
             else:
-                on = valid & (np.abs(Pp[..., 2] - room.height.value) < tol) & (np.abs(nrm[..., 2]) > 0.85)
+                on = valid & (np.abs(Pp[..., 2] - room.ceil_z.value) < tol) & (np.abs(nrm[..., 2]) > 0.85)
                 uu = Pp[..., 0] - srf.origin[0]
                 vv = Pp[..., 1] - srf.origin[1]
                 on &= (uu > 0.05) & (vv > 0.05) & (uu < srf.size[0] - 0.05) & (vv < srf.size[1] - 0.05)
+                if on.any():   # bounded by the room's outline, not its bounding box (L-shapes, neighbours)
+                    from shapely import contains_xy
+                    inner = srf.room_poly
+                    on[on] = contains_xy(inner, Pp[..., 0][on], Pp[..., 1][on])
             take = on & (sidx < 0)
             sidx[take], su[take], sv[take] = k, uu[take], vv[take]
         mask = sidx >= 0
@@ -244,9 +254,10 @@ def _regions(surfaces: list[Surface], tier: str) -> list[DamageRegion]:
             area_se = 0.5 * perim * RES + 0.05 * area
             score = float(np.clip(frac[iu, iv].mean(), 0, 1))
             h_c = float((v0 + v1) / 2) if srf.kind == "wall" else float(srf.room.height.value)
+            h_c_se = RES if srf.kind == "wall" else float(srf.room.height.se)
             out.append(DamageRegion(id="", cls=cls, surface=srf, area=Estimate(area, area_se),
                                     width=Estimate(u1 - u0, RES), height=Estimate(v1 - v0, RES),
-                                    bbox=(u0, v0, u1, v1), centroid_height=h_c, score=score,
+                                    bbox=(u0, v0, u1, v1), centroid_height=Estimate(h_c, h_c_se), score=score,
                                     n_views=int(seen[iu, iv].max()), length=float(length)))
     for i, d in enumerate(out):
         d.id = f"D{i + 1}"

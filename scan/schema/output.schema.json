@@ -39,7 +39,7 @@
         "id": {"type": "string"},
         "type": {"enum": ["door", "window", "opening"]},
         "wall_id": {"type": "string"},
-        "offset_m": {"type": "number", "description": "distance from wall start to the opening's near jamb"},
+        "offset_m": {"$ref": "#/$defs/measure", "description": "distance from wall start to the opening's near jamb"},
         "width_m": {"$ref": "#/$defs/measure"},
         "height_m": {"$ref": "#/$defs/measure"},
         "sill_m": {"$ref": "#/$defs/measure"},
@@ -124,7 +124,7 @@
             "type": "object", "required": ["width", "height"], "additionalProperties": false,
             "properties": {"width": {"$ref": "#/$defs/measure"}, "height": {"$ref": "#/$defs/measure"}}
           },
-          "centroid_height_m": {"type": "number"},
+          "centroid_height_m": {"$ref": "#/$defs/measure"},
           "bbox_on_surface_m": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
           "score": {"type": "number", "minimum": 0, "maximum": 1},
           "n_views": {"type": "integer"}

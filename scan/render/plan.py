@@ -71,7 +71,7 @@ def _opening(ax, room, o):
     wl = next(w for w in room["walls"] if w["id"] == o["wall_id"])
     a, b = np.array(wl["start_m"]), np.array(wl["end_m"])
     d = (b - a) / max(np.linalg.norm(b - a), 1e-9)
-    p0 = a + d * o["offset_m"]
+    p0 = a + d * o["offset_m"]["value"]
     p1 = p0 + d * o["width_m"]["value"]
     if o["type"] in ("door", "opening"):
         ax.plot([p0[0], p1[0]], [p0[1], p1[1]], color="white", lw=4.0, zorder=4)

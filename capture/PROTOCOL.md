@@ -18,7 +18,7 @@
 
 ## C. Photos (any iPhone 15 or newer) — app: built-in *Camera*
 1. Camera → **Photo**, tap **0.5×** (ultra-wide). Flash off. Keep it **landscape** except for doorway shots.
-2. Visit rooms in an order where **each new room is entered from a room you already photographed**. Per room take **4 to 8 photos**:
+2. Visit rooms in an order where **each new room is entered from a room you already photographed**. Per room take **2 to 8 photos** (4 or more gives tighter results):
    * **Corners:** stand about half a metre from each corner, aim at the opposite corner, include floor and ceiling. (If the room has more than 4 doors, do 2 opposite corners only.)
    * **Each doorway to another room (portrait):** stand with your back to the opposite wall, aim straight at the doorway so **the whole door frame, the floor through it and the wall above it** are in the photo. Outside doors need no doorway photo.
    * **Hallways or rooms more than 2.5× longer than wide:** also photograph each end wall from 1.5 m away.

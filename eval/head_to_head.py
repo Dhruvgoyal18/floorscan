@@ -31,7 +31,11 @@ def compare(ours: dict, theirs: dict, gt_room: dict) -> list[dict]:
     rows = []
 
     def add(dim, gtv, ov, tv, area=False):
-        if ov is None or tv is None:
+        if tv is None:
+            return   # not a shared dimension
+        if ov is None:   # we missed it: a loss, never silently dropped
+            rows.append({"dimension": dim, "gt": gtv, "ours": float("nan"), "ours_err": float("nan"), "theirs": tv,
+                         "theirs_err": tv - gtv, "winner": "theirs"})
             return
         eo, et = abs(ov - gtv), abs(tv - gtv)
         tie = abs(eo - et) <= (TIE_REL_AREA * gtv if area else TIE_ABS)

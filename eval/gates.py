@@ -95,7 +95,12 @@ def repeatability(matches, tier):
         if len(caps) < 2:
             continue
         for a, b in itertools.combinations(sorted(caps), 2):
+            seen_pairs = set()
             for wi in sorted(set(caps[a]) & set(caps[b])):
+                key = (round(caps[a][wi], 4), round(caps[b][wi], 4))
+                if key in seen_pairs:   # opposite wall of a rectangle = same two plane fits, not new evidence
+                    continue
+                seen_pairs.add(key)
                 La, Lb = caps[a][wi], caps[b][wi]
                 tol = max(REPEAT_ABS, REPEAT_REL * (La + Lb) / 2)
                 rows.append({"room": f"{p}/{room}", "wall": wi, "a": a, "b": b, "La": La, "Lb": Lb,
@@ -112,7 +117,8 @@ def photo_stitch_gate(matches):
         lo, hi = m.footprint["ci90"]
         rows.append({"capture": m.capture, "adjacency_correct": m.adjacency["correct"],
                      "missing": m.adjacency["missing"], "extra": m.adjacency["extra"],
-                     "overlap_m2": m.footprint["overlap_m2"], "footprint_rel_err_pct": m.footprint["rel_err"] * 100,
+                     "overlap_m2": m.footprint["overlap_m2"],
+                     "footprint_rel_err_pct": (m.footprint["rel_err"] or 0.0) * 100 if m.footprint["rel_err"] is not None else float("nan"),
                      "gt_in_ci90": lo <= m.footprint["gt"] <= hi,
                      "rooms": f"{m.footprint['n_rooms_pred']}/{m.footprint['n_rooms_gt']}"})
     ok = [r["adjacency_correct"] and r["overlap_m2"] <= 0.05 and abs(r["footprint_rel_err_pct"]) <= PHOTO_FOOTPRINT * 100

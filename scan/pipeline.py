@@ -43,16 +43,26 @@ def pipeline_version() -> str:
                              cwd=Path(__file__).parent, timeout=5).stdout.strip()
     except Exception:
         sha = ""
-    return f"{__version__}+{sha}" if sha else __version__
+    if sha:
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", "scan"], capture_output=True, text=True,
+                               cwd=Path(__file__).parent, timeout=5).stdout.strip()
+        return f"{__version__}+{sha}" + (".dirty" if dirty else "")
+    import hashlib   # not a git checkout (e.g. a zip): identify the code by its content
+    h = hashlib.sha256()
+    for f in sorted(Path(__file__).parent.rglob("*.py")):
+        h.update(f.read_bytes())
+    return f"{__version__}+src.{h.hexdigest()[:8]}"
 
 
-def _offset(room: RoomEst, o: OpeningEst) -> float:
+def _offset(room: RoomEst, o: OpeningEst) -> Estimate:
+    """Distance from the wall's start corner to the near jamb (both are plane fits: errors add)."""
     w = room.walls[o.edge]
     b = 1 - w.axis
     sgn = np.sign(w.end[b] - w.start[b]) or 1.0
     u0 = (o.t0.value - w.start[b]) * sgn
     u1 = (o.t1.value - w.start[b]) * sgn
-    return float(min(u0, u1))
+    near = o.t0 if u0 <= u1 else o.t1
+    return Estimate(float(min(u0, u1)), float(np.hypot(near.se, w.length.se / 2)), near.observed)
 
 
 def _rename(room: RoomEst, rid: str):
@@ -121,6 +131,9 @@ def run(capture: Path, out_dir: Path, tier: str | None = None, backend: str = "a
                 except RuntimeError as e:
                     warnings.append(f"room folder '{o.group}' produced no room: {e}")
                     continue
+                if not plan.rooms:
+                    warnings.append(f"room folder '{o.group}' produced no room")
+                    continue
                 main = max(plan.rooms, key=lambda r: (r.n_cams, r.area.value))
                 groups.append((o, plan, [main], o.group))
     timing["geometry"] = time.time() - t
@@ -144,8 +157,9 @@ def run(capture: Path, out_dir: Path, tier: str | None = None, backend: str = "a
         for d in regs:
             d.id = f"D{len(damage_regions) + 1}"
             damage_regions.append(d)
-        flags += concealed_flags(regs)
-        scope += scope_items(regs, concealed_flags(regs))
+        fl = concealed_flags(regs)
+        flags += fl
+        scope += scope_items(regs, fl)
     for i, s in enumerate(scope):
         s["id"] = f"S{i + 1}"
     timing["damage"] = time.time() - t
@@ -236,10 +250,10 @@ def _assemble(cid, tier, device, backend, rooms, names, adjacency, overlap, meth
             walls.append({"id": w.id, "start_m": [round(float(x), 4) for x in w.start],
                           "end_m": [round(float(x), 4) for x in w.end],
                           "length_m": M(w.length, tier, "wall_length", key=f"{r.id}/{w.id}/length"), "height_m": M(r.height, tier, "ceiling_height"),
-                          "net_area_m2": M(area, tier, "floor_area", 3)})
+                          "net_area_m2": M(area, tier, "wall_area", 3)})
         ops = []
         for o in r.openings:
-            d = {"id": o.id, "type": o.kind, "wall_id": r.walls[o.edge].id, "offset_m": round(getattr(o, "offset", 0.0), 4),
+            d = {"id": o.id, "type": o.kind, "wall_id": r.walls[o.edge].id, "offset_m": M(getattr(o, "offset", Estimate(0.0, 0.1, False)), tier, "opening_width"),
                  "width_m": M(o.width, tier, "opening_width", key=f"{r.id}/{o.id}/width"), "height_m": M(o.height, tier, "opening_height", key=f"{r.id}/{o.id}/height"),
                  "connects_to": o.connects_to, "confidence": round(float(o.confidence), 3)}
             if o.sill is not None:
@@ -263,8 +277,8 @@ def _assemble(cid, tier, device, backend, rooms, names, adjacency, overlap, meth
     dmg = []
     for d in regions:
         dmg.append({"id": d.id, "class": d.cls, "surface_id": d.surface.id, "area_m2": M(d.area, tier, "damage_area", 4, key=f"{d.id}/area"),
-                    "extent_m": {"width": M(d.width, tier, "damage_area", 3), "height": M(d.height, tier, "damage_area", 3)},
-                    "centroid_height_m": round(d.centroid_height, 3),
+                    "extent_m": {"width": M(d.width, tier, "damage_extent", 3), "height": M(d.height, tier, "damage_extent", 3)},
+                    "centroid_height_m": M(d.centroid_height, tier, "damage_extent", 3),
                     "bbox_on_surface_m": [round(float(x), 3) for x in d.bbox], "score": round(d.score, 3),
                     "n_views": d.n_views})
     sc = [{"id": s["id"], "surface_id": s["surface_id"], "action": s["action"],
@@ -277,7 +291,8 @@ def _assemble(cid, tier, device, backend, rooms, names, adjacency, overlap, meth
                      "method": method, "drift": drift_info},
         "damage": dmg, "concealed_flags": flags, "scope": sc,
         "quality": {"warnings": warnings, "calibration": calib.status,
-                    "wall_thickness_m": round(T, 3)},
+                    "wall_thickness_m": (M(thickness, tier, "wall_length", 3) if thickness is not None
+                                         else {"value": T, "ci90": [0.08, 0.20], "observed": False})},
         "timing_s": {},
     }
 

@@ -126,7 +126,7 @@ def _ablation_row(c, on, off, m_on, m_off):
         return float(np.std(gaps) * 100) if len(gaps) > 1 else None
 
     def fp(m):
-        return m.footprint["rel_err"] * 100
+        return m.footprint["rel_err"] * 100 if m.footprint["rel_err"] is not None else float("nan")
 
     return {"capture": c["id"], "tier": c["tier"],
             "footprint_err_pct_on": fp(m_on), "footprint_err_pct_off": fp(m_off),

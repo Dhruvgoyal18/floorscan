@@ -51,14 +51,21 @@ class VideoFrames:
         cap.release()
 
     def get(self, idx: int) -> np.ndarray | None:
+        """Frame ``idx`` by sequential decoding (frame-exact; seeking is not exact on H.264/HEVC).
+        Requests in increasing order cost one pass over the video."""
         if idx in self._cache:
             return self._cache[idx]
-        cap = cv2.VideoCapture(str(self.path))
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ok, bgr = cap.read()
-        cap.release()
-        if not ok:
-            return None
+        if getattr(self, "_cap", None) is None or idx < self._pos:
+            if getattr(self, "_cap", None) is not None:
+                self._cap.release()
+            self._cap = cv2.VideoCapture(str(self.path))
+            self._pos = 0
+        bgr = None
+        while self._pos <= idx:
+            ok, bgr = self._cap.read()
+            if not ok:
+                return None
+            self._pos += 1
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         if len(self._cache) > 64:
             self._cache.pop(next(iter(self._cache)))
@@ -111,6 +118,8 @@ def load_stray_frames(d: Path, target_fps: float = 5.0, poses_override: list[np.
         frames.append(Frame(index=k, T_wc=T, K=K, depth=depth, conf=conf,
                             load_image=(lambda fi=fno: video.get(fi)) if video else None,
                             timestamp=float(row[0]), name=f"{fno:06d}"))
+    if not frames:
+        raise ValueError(f"{d}: no frame has both an odometry row and a depth image (check the export is complete)")
     meta = {"device_res": [wd, hd], "rgb_res": [W, H], "n_frames_total": int(len(odo)), "n_frames_used": len(frames)}
     return frames, meta
 

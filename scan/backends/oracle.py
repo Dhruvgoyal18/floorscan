@@ -12,6 +12,7 @@ from real captures. The oracle exists so the downstream pipeline can be develope
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 from pathlib import Path
@@ -38,10 +39,12 @@ class OracleBackend:
 
     def reconstruct(self, views: list[View], tier: str) -> list[Frame]:
         err = self.errors[tier]
-        # seed from the capture-relative names (folder/file, frame index), never from absolute paths,
-        # so the same capture gives the same draw on any machine / checkout location
-        key = "|".join("/".join(Path(v.source.split("#")[0].replace("video:", "")).parts[-2:]) +
-                       ("#" + v.source.split("#")[1] if "#" in v.source else "") for v in views)
+        # seed from the *content* of the inputs (sidecar bytes), never from paths: the same capture gives
+        # the same draw on any machine, and different takes of the same room get different draws
+        h = hashlib.sha256()
+        for v in views:
+            h.update(self._sidecar_digest(v))
+        key = h.hexdigest()
         seed = int(hashlib.sha256(key.encode()).hexdigest()[:8], 16)
         rng = np.random.default_rng(seed)
         scale = 1.0 + rng.normal(0, err["scale"])
@@ -71,6 +74,17 @@ class OracleBackend:
         return frames
 
     @staticmethod
+    def _sidecar_digest(v: View) -> bytes:
+        src = v.source
+        if src.startswith("video:"):
+            path, idx = src[len("video:"):].rsplit("#", 1)
+            side = Path(path).parent / "_synthetic" / "depth.npz"
+            return (_digest(str(side)) if side.exists() else b"") + idx.encode()
+        p = Path(src)
+        side = p.parent / "_synthetic" / f"{p.stem}.npz"
+        return _digest(str(side)) if side.exists() else p.name.encode()
+
+    @staticmethod
     def _truth(v: View, cache):
         src = v.source
         if src.startswith("video:"):
@@ -94,6 +108,11 @@ class OracleBackend:
         K = z["K"].copy()
         K[:2] /= int(z["stride"])
         return z["depth"].astype(np.float32), K, z["T_wc"]
+
+
+@functools.lru_cache(maxsize=256)
+def _digest(path: str) -> bytes:
+    return hashlib.sha256(Path(path).read_bytes()).digest()
 
 
 def is_synthetic(capture: Path) -> bool:

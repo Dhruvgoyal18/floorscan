@@ -26,7 +26,8 @@ PRIOR = {
     "k_kind": {},
     "floor_rel": {"lidar": 0.002, "video": 0.01, "photo": 0.03},
     "floor_abs": {"wall_length": 0.003, "ceiling_height": 0.003, "opening_width": 0.004, "opening_height": 0.005,
-                  "floor_area": 0.02, "footprint": 0.05, "damage_area": 0.002, "perimeter": 0.01, "quantity": 0.0},
+                  "floor_area": 0.02, "footprint": 0.05, "damage_area": 0.002, "perimeter": 0.01, "quantity": 0.0,
+                  "wall_area": 0.02, "damage_extent": 0.01},
 }
 
 
@@ -52,7 +53,7 @@ class Calibration:
     def half_width(self, est: Estimate, tier: str, kind: str) -> float:
         k = self.factor(tier, kind)
         rel = self.t["floor_rel"].get(tier, 0.03)
-        if kind in ("floor_area", "footprint", "damage_area"):
+        if kind in ("floor_area", "footprint", "damage_area", "wall_area"):
             rel *= 2  # areas: two lengths' relative error
         return max(Z90 * k * est.se, rel * abs(est.value), self.t["floor_abs"].get(kind, 0.0))
 

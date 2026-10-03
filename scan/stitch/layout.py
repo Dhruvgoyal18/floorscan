@@ -125,7 +125,7 @@ def solve_layout(rooms: list[RoomEst], beam: int = 40, wall_t: float = WALL_T,
                         k = next(k for k in range(4) if np.allclose(_R(k) @ dq.n, -npw, atol=1e-6))
                         t = cp - npw * wall_t - _R(k) @ dq.c
                         new = Placement(k={**st.k, j: k}, t={**st.t, j: t}, pairs=st.pairs + [(dp, dq)])
-                        cand.append((st.score + _attach_cost(new, rooms, j, dp, dq, seen), new))
+                        cand.append((st.score + _attach_cost(new, rooms, j, dp, dq, seen, wall_t), new))
         if not cand:
             # no doorway to attach through: place it beside the bounding box and say so
             st = states[0]
@@ -168,7 +168,7 @@ def _shared_wall_length(pl: Placement, rooms, j, wall_t) -> float:
     return tot
 
 
-def _attach_cost(pl: Placement, rooms, j, dp: Door, dq: Door, seen: list[Seen]) -> float:
+def _attach_cost(pl: Placement, rooms, j, dp: Door, dq: Door, seen: list[Seen], wall_t: float = WALL_T) -> float:
     # photo-tier widths carry a few cm of error each side; don't let a 5 cm disagreement dominate
     se = np.hypot(dp.width_se, dq.width_se) + 0.04
     cost = min(((dp.width - dq.width) / se) ** 2, 25.0)
@@ -187,7 +187,7 @@ def _attach_cost(pl: Placement, rooms, j, dp: Door, dq: Door, seen: list[Seen]) 
         if f is not None:
             cost += 12.0 * (1.0 - f)
     # compact layouts: rooms in real buildings share walls
-    cost -= 0.3 * min(_shared_wall_length(pl, rooms, j, WALL_T), 10.0)
+    cost -= 0.3 * min(_shared_wall_length(pl, rooms, j, wall_t), 10.0)
     return cost
 
 
@@ -211,7 +211,8 @@ def _close_loops(pl: Placement, rooms, doors, wall_t) -> Placement:
 
 def _refine(pl: Placement, rooms, wall_t):
     """Least-squares translations (rotations fixed) so every matched doorway coincides."""
-    idx = [r for r in sorted(pl.k) if r != 0]
+    connected = {d.room for pair in pl.pairs for d in pair}
+    idx = [r for r in sorted(pl.k) if r != 0 and r in connected]   # unconnected rooms keep their placement
     if not idx or not pl.pairs:
         return
     col = {r: 2 * i for i, r in enumerate(idx)}

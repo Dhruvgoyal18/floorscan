@@ -13,7 +13,7 @@ def M(v, h=0.01):
 def _result(walls, openings, adjacency=(), tier="lidar", rid="R1"):
     ws = [{"id": f"{rid}W{i + 1}", "start_m": [0, 0], "end_m": [1, 0], "length_m": M(L), "height_m": M(2.5),
            "net_area_m2": M(1.0)} for i, L in enumerate(walls)]
-    ops = [{"id": f"{rid}O{i + 1}", "type": t, "wall_id": f"{rid}W{w + 1}", "offset_m": off, "width_m": M(wd),
+    ops = [{"id": f"{rid}O{i + 1}", "type": t, "wall_id": f"{rid}W{w + 1}", "offset_m": M(off), "width_m": M(wd),
             "height_m": M(2.03)} for i, (t, w, off, wd) in enumerate(openings)]
     room = {"id": rid, "name": rid, "polygon_m": [[0, 0], [1, 0], [1, 1]], "walls": ws, "ceiling_height_m": M(2.51),
             "floor_area_m2": M(walls[0] * walls[1]), "perimeter_m": M(sum(walls)), "openings": ops}

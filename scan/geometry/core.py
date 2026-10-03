@@ -471,7 +471,7 @@ def _segment_rooms(ctx, lines: list[Line], warnings: list[str]) -> list[RoomEst]
                        height=Estimate(0, 0), area=Estimate(0, 0), perimeter=Estimate(0, 0), n_cams=n_in)
         room.walls = _bind_walls(ring, lines)
         rooms.append(room)
-    # deterministic order: by number of cameras inside (main rooms first), then position
+    # deterministic order: by position (left to right, then bottom to top)
     rooms.sort(key=lambda r: (round(r.polygon[:, 0].min(), 1), round(r.polygon[:, 1].min(), 1)))
     return rooms
 
@@ -587,7 +587,8 @@ def _measure_room(ctx, lines, room: RoomEst, rng: np.random.Generator | None = N
         # coordinates for this room and widen nothing silently - report it
         vals = np.array([(w.start[1] if w.axis == 1 else w.start[0]) for w in room.walls])
         ring = ring_from(vals)
-        ctx.setdefault("warnings_extra", []).append(f"room {room.id}: refined walls self-intersected; structural outline kept")
+        if not ctx.get("bootstrapping"):
+            ctx.setdefault("warnings_extra", []).append(f"room {room.id}: refined walls self-intersected; structural outline kept")
     room.polygon = ring
     for k, w in enumerate(room.walls):
         w.start, w.end = ring[k], ring[(k + 1) % n]
@@ -644,7 +645,7 @@ def _filter_mirror_points(ctx, lines, rooms, warnings):
                 continue
             lam = (l.c - o[beh, a]) / (P[beh, a] - o[beh, a])
             cross = o[beh] + lam[:, None] * (P[beh] - o[beh])
-            within = (cross[:, b] > t0) & (cross[:, b] < t1) & (cross[:, 2] > 0) & (cross[:, 2] < r.ceil_z.value if r.ceil_z.value else 3)
+            within = (cross[:, b] > t0) & (cross[:, b] < t1) & (cross[:, 2] > 0) & (cross[:, 2] < (r.ceil_z.value if r.ceil_z.value else 3.0))
             idx = np.nonzero(beh)[0][within]
             cross = cross[within]
             # evidence = wall-parallel surfaces well behind the wall: points a few cm behind are the wall
@@ -761,6 +762,8 @@ def _bootstrap(ctx, lines, rooms, obs: Observations, cfg: CoreConfig):
     def rec(key, v):
         samples.setdefault(key, []).append(v)
 
+    ctx["bootstrapping"] = True
+    failures = 0
     for _ in range(cfg.bootstrap):
         pick = rng.integers(0, nF, nF)
         cnt = np.bincount(pick, minlength=nF)
@@ -773,7 +776,8 @@ def _bootstrap(ctx, lines, rooms, obs: Observations, cfg: CoreConfig):
                              for w in r.walls], r.floor_z, r.ceil_z, r.height, r.area, r.perimeter)
             try:
                 _measure_room(ctx, lines, clone, rng)
-            except Exception:
+            except (ValueError, IndexError, FloatingPointError):
+                failures += 1   # a resample lost a wall: counted, and the estimate is widened below
                 continue
             rec((r.id, "height"), clone.height.value)
             rec((r.id, "area"), clone.area.value)
@@ -786,6 +790,9 @@ def _bootstrap(ctx, lines, rooms, obs: Observations, cfg: CoreConfig):
                     rec((o.id, "width"), v)
     for k in base:
         ctx[k] = base[k]
+    ctx["bootstrapping"] = False
+    if failures:
+        ctx.setdefault("warnings_extra", []).append(f"{failures} bootstrap resamples could not be measured")
 
     def widen(est: Estimate, key):
         v = np.array([x for x in samples.get(key, []) if np.isfinite(x)])

@@ -15,6 +15,7 @@ Matching rules (fixed before looking at results, so they cannot be tuned to flat
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -123,13 +124,13 @@ def match(result: dict, estimates: dict, gt: dict, rooms_in_capture: list[str], 
             gos = [o for o in gr.get("openings", []) if o["wall"] == gi]
             pos = [o for o in pr["openings"] if o["wall_id"] == wid]
             if gos and pos:
-                Cm = np.array([[abs(p["width_m"]["value"] - g["width"]) + 0.5 * abs(p["offset_m"] - g["offset"])
+                Cm = np.array([[abs(p["width_m"]["value"] - g["width"]) + 0.5 * abs(p["offset_m"]["value"] - g["offset"])
                                 + (0 if _compatible(g["type"], p["type"]) else 10) for p in pos] for g in gos])
                 a, b = linear_sum_assignment(Cm)
                 ok = set()
                 for i, j in zip(a, b):
                     g, p = gos[i], pos[j]
-                    if (abs(p["width_m"]["value"] - g["width"]) < 0.25 and abs(p["offset_m"] - g["offset"]) < 0.6
+                    if (abs(p["width_m"]["value"] - g["width"]) < 0.25 and abs(p["offset_m"]["value"] - g["offset"]) < 0.6
                             and _compatible(g["type"], p["type"])):
                         ok.add(i)
                         used_pred.add(p["id"])
@@ -159,7 +160,11 @@ def match(result: dict, estimates: dict, gt: dict, rooms_in_capture: list[str], 
                     continue
                 u0, v0, u1, v1 = d["bbox_on_surface_m"]
                 cu, cv = (u0 + u1) / 2, (v0 + v1) / 2
-                if gd["surface"] == "wall" and abs(cv - gd["centroid_height"]) < 0.4 and abs(cu - gd.get("u", cu)) < 0.4:
+                if gd["surface"] == "wall":
+                    ok = abs(cv - gd["centroid_height"]) < 0.4 and abs(cu - gd.get("u", cu)) < 0.4
+                else:   # ceiling: GT gives the centre offset from the room's corner as (u, v) when measured
+                    ok = abs(cu - gd.get("u", cu)) < 0.6 and abs(cv - gd.get("v", cv)) < 0.6
+                if ok:
                     hit = d
                     break
             if hit:
@@ -174,7 +179,8 @@ def match(result: dict, estimates: dict, gt: dict, rooms_in_capture: list[str], 
                 m.damage.setdefault("missed", []).append(gd["id"])
     matched_damage = {f["pred"] for f in m.damage.get("found", [])}
     m.damage["false_positive"] = [d["id"] for d in result["damage"] if d["id"] not in matched_damage
-                                  and any(d["surface_id"].startswith(p) for p in m.rooms)]
+                                  and any(d["surface_id"] == p + "C" or re.fullmatch(re.escape(p) + r"W\d+", d["surface_id"])
+                                          for p in m.rooms)]
     m.openings["matched"] = m.openings["gt"] - len(m.openings["missed"])
 
     # adjacency (doorway connections) among matched rooms

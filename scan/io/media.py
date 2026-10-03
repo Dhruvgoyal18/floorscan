@@ -116,10 +116,12 @@ def video_keyframes(path: Path, workdir: Path, target_fps: float = 2.5, max_side
     win = max(1, int(round(fps / target_fps)))
     best, best_s, idx = None, -1.0, 0
     picks = []
+    stamps: dict[int, float] = {}
     while True:
         ok, bgr = cap.read()
         if not ok:
             break
+        stamps[idx] = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0   # variable frame rate safe
         small = bgr
         s = max_side / max(bgr.shape[:2])
         if s < 1:
@@ -145,7 +147,7 @@ def video_keyframes(path: Path, workdir: Path, target_fps: float = 2.5, max_side
         h, w = img.shape[:2]
         K = K_from_f35(f35, w, h) if f35 else None   # only trust real metadata for video (EIS crops the FOV)
         views.append(View(name=f"kf_{fi:06d}", load_image=lambda f=f: cv2.cvtColor(cv2.imread(str(f)), cv2.COLOR_BGR2RGB),
-                          K=K, timestamp=fi / fps, source=f"video:{path}#{fi}", group="all"))
+                          K=K, timestamp=stamps.get(fi, fi / fps), source=f"video:{path}#{fi}", group="all"))
     info = {"device": model, "fps": fps, "n_frames": idx, "n_keyframes": len(views),
             "blurry_share": float(np.mean(sharp < 0.25 * np.median(sharp))) if len(sharp) else 0.0}
     return views, info
