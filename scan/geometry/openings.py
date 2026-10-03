@@ -79,7 +79,10 @@ def _jamb(ctx, l, c, t_guess, side, z_lo, z_hi, sig):
     s = ctx["cfg"].jamb_search
     lo, hi = (t_guess - s, t_guess + 0.10) if side < 0 else (t_guess - 0.10, t_guess + s)
     zsel = (P[:, 2] > z_lo) & (P[:, 2] < z_hi) & (P[:, b] > lo) & (P[:, b] < hi)
-    rev = zsel & (depth > dmin) & (depth < REVEAL_MAX)
+    # the reveal must be seen from *this* side; the wall's far face (seen from the neighbouring room)
+    # lies at the same depth range and would otherwise drag the jamb outward
+    front = (ctx["cams"][ctx["F"], a] - c) * f > 0.05
+    rev = zsel & (depth > dmin) & (depth < REVEAL_MAX) & front
     if rev.sum() >= 15:
         t = P[rev, b]
         m = float(np.median(t))
@@ -99,8 +102,9 @@ def _level(ctx, l, c, t_l, t_r, z_guess, sig):
     a, b, f = l.axis, 1 - l.axis, l.facing
     depth = (c - P[:, a]) * f
     dmin = max(0.02, 2.5 * sig)
+    front = (ctx["cams"][ctx["F"], a] - c) * f > 0.05
     sel = ((depth > dmin) & (depth < REVEAL_MAX) & (P[:, b] > t_l + 0.05) & (P[:, b] < t_r - 0.05) &
-           (np.abs(P[:, 2] - z_guess) < 0.12))
+           (np.abs(P[:, 2] - z_guess) < 0.12) & front)
     if sel.sum() >= 15:
         z = P[sel, 2]
         m = float(np.median(z))

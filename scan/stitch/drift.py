@@ -88,12 +88,14 @@ def icp_4dof(src: np.ndarray, dst: np.ndarray, dst_n: np.ndarray, max_iter: int 
     Returns (E, fitness, rmse, min_eig) where min_eig is the smallest eigenvalue of the normalised
     information matrix (small => degenerate geometry, e.g. a single wall)."""
     E = np.eye(4) if init is None else init.copy()
+    if len(src) > 4000:  # deterministic subsample: ICP needs coverage, not density
+        src = src[np.linspace(0, len(src) - 1, 4000).astype(int)]
     tree = cKDTree(dst)
     cen = src.mean(0)
     H = np.eye(4)
     for it in range(max_iter):
         s = src @ E[:3, :3].T + E[:3, 3]
-        d, j = tree.query(s, k=1, workers=-1)
+        d, j = tree.query(s, k=1)
         thr = 0.15 if it < 5 else (0.08 if it < 12 else 0.04)
         m = d < thr
         if m.sum() < 30:
@@ -117,7 +119,7 @@ def icp_4dof(src: np.ndarray, dst: np.ndarray, dst_n: np.ndarray, max_iter: int 
         if np.abs(dx[0]) < 1e-5 and np.linalg.norm(dx[1:]) < 1e-4:
             break
     s = src @ E[:3, :3].T + E[:3, 3]
-    d, _ = tree.query(s, k=1, workers=-1)
+    d, _ = tree.query(s, k=1)
     inl = d < 0.03
     fitness = float(inl.mean())
     rmse = float(np.sqrt(np.mean(d[inl] ** 2))) if inl.any() else np.inf
