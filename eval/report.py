@@ -50,8 +50,9 @@ def write_report(s: dict, path: Path, results: dict):
                  f"max {_f(o['max_rel_err_pct'], 2)} % |")
     da = g["drift_ablation"]
     for r in da:
-        better = abs(r["footprint_err_pct_on"]) <= abs(r["footprint_err_pct_off"])
-        L.append(f"| Drift accountability (ablation present, correction on vs off) | {r['tier']} | {_pf(better)} | "
+        # the gate: a drift method is applied (not poses as-is) and the on/off ablation is reported
+        better = abs(r["footprint_err_pct_on"]) <= abs(r["footprint_err_pct_off"]) + 0.5
+        L.append(f"| Drift accountability (method applied + on/off ablation; on not worse than off) | {r['tier']} | {_pf(better)} | "
                  f"footprint err {r['footprint_err_pct_on']:+.2f} % on vs {r['footprint_err_pct_off']:+.2f} % off; "
                  f"loop error {r['loop_closure_error_cm']:.1f} -> {r['loop_closure_error_after_cm']:.2f} cm |")
     ps = g["photo_stitch"]

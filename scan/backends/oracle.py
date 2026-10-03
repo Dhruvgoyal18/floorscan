@@ -38,7 +38,10 @@ class OracleBackend:
 
     def reconstruct(self, views: list[View], tier: str) -> list[Frame]:
         err = self.errors[tier]
-        key = "|".join(v.source for v in views)
+        # seed from the capture-relative names (folder/file, frame index), never from absolute paths,
+        # so the same capture gives the same draw on any machine / checkout location
+        key = "|".join("/".join(Path(v.source.split("#")[0].replace("video:", "")).parts[-2:]) +
+                       ("#" + v.source.split("#")[1] if "#" in v.source else "") for v in views)
         seed = int(hashlib.sha256(key.encode()).hexdigest()[:8], 16)
         rng = np.random.default_rng(seed)
         scale = 1.0 + rng.normal(0, err["scale"])
