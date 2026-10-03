@@ -173,8 +173,9 @@ def run(capture: Path, out_dir: Path, tier: str | None = None, backend: str = "a
     overlap = _overlap(rooms)
     timing["stitch"] = time.time() - t
 
+    record: list = []
     result = _assemble(capture_id or capture.name, tier, dev, used_backend, rooms, names, adjacency, overlap,
-                       method, drift_info, damage_regions, flags, scope, calib, warnings, thickness)
+                       method, drift_info, damage_regions, flags, scope, calib, warnings, thickness, record)
     timing["total"] = time.time() - t_start
     result["timing_s"] = {k: round(v, 2) for k, v in timing.items()}
     errs = sorted(Draft202012Validator(SCHEMA).iter_errors(result), key=lambda e: list(e.path))
@@ -187,6 +188,8 @@ def run(capture: Path, out_dir: Path, tier: str | None = None, backend: str = "a
         result["artifacts"] = {"plan_svg": "plan.svg", "plan_png": "plan.png", "json": "result.json"}
         result["timing_s"]["render"] = round(time.time() - t, 2)
     (out_dir / "result.json").write_text(json.dumps(result, indent=1))
+    # raw estimates (value, standard error) for calibration fitting; not part of the output contract
+    (out_dir / "estimates.json").write_text(json.dumps({"tier": tier, "items": record}, indent=0))
     return result
 
 
@@ -207,8 +210,11 @@ def _overlap(rooms) -> float:
 
 
 def _assemble(cid, tier, device, backend, rooms, names, adjacency, overlap, method, drift_info, regions, flags,
-              scope, calib: Calibration, warnings, thickness) -> dict:
-    M = calib.measure
+              scope, calib: Calibration, warnings, thickness, record: list | None = None) -> dict:
+    def M(est, tier_, kind, digits=4, key=None):
+        if record is not None and key is not None:
+            record.append({"key": key, "kind": kind, "value": est.value, "se": est.se, "observed": est.observed})
+        return calib.measure(est, tier_, kind, digits)
     out_rooms = []
     for r in rooms:
         walls = []
@@ -219,20 +225,20 @@ def _assemble(cid, tier, device, backend, rooms, names, adjacency, overlap, meth
                             w.length.observed)
             walls.append({"id": w.id, "start_m": [round(float(x), 4) for x in w.start],
                           "end_m": [round(float(x), 4) for x in w.end],
-                          "length_m": M(w.length, tier, "wall_length"), "height_m": M(r.height, tier, "ceiling_height"),
+                          "length_m": M(w.length, tier, "wall_length", key=f"{r.id}/{w.id}/length"), "height_m": M(r.height, tier, "ceiling_height"),
                           "net_area_m2": M(area, tier, "floor_area", 3)})
         ops = []
         for o in r.openings:
             d = {"id": o.id, "type": o.kind, "wall_id": r.walls[o.edge].id, "offset_m": round(getattr(o, "offset", 0.0), 4),
-                 "width_m": M(o.width, tier, "opening_width"), "height_m": M(o.height, tier, "opening_height"),
+                 "width_m": M(o.width, tier, "opening_width", key=f"{r.id}/{o.id}/width"), "height_m": M(o.height, tier, "opening_height", key=f"{r.id}/{o.id}/height"),
                  "connects_to": o.connects_to, "confidence": round(float(o.confidence), 3)}
             if o.sill is not None:
                 d["sill_m"] = M(o.sill, tier, "opening_height")
             ops.append(d)
         out_rooms.append({"id": r.id, "name": names.get(r.id, r.id),
                           "polygon_m": [[round(float(x), 4), round(float(y), 4)] for x, y in r.polygon],
-                          "walls": walls, "ceiling_height_m": M(r.height, tier, "ceiling_height"),
-                          "floor_area_m2": M(r.area, tier, "floor_area", 3),
+                          "walls": walls, "ceiling_height_m": M(r.height, tier, "ceiling_height", key=f"{r.id}/height"),
+                          "floor_area_m2": M(r.area, tier, "floor_area", 3, key=f"{r.id}/area"),
                           "perimeter_m": M(r.perimeter, tier, "perimeter"), "openings": ops})
     areas = [r.area for r in rooms]
     if tier == "photo":   # independent reconstructions: errors add in quadrature
@@ -246,7 +252,7 @@ def _assemble(cid, tier, device, backend, rooms, names, adjacency, overlap, meth
     gross = Estimate(float(gross_poly.area), net_se * (gross_poly.area / max(net.value, 1e-6)))
     dmg = []
     for d in regions:
-        dmg.append({"id": d.id, "class": d.cls, "surface_id": d.surface.id, "area_m2": M(d.area, tier, "damage_area", 4),
+        dmg.append({"id": d.id, "class": d.cls, "surface_id": d.surface.id, "area_m2": M(d.area, tier, "damage_area", 4, key=f"{d.id}/area"),
                     "extent_m": {"width": M(d.width, tier, "damage_area", 3), "height": M(d.height, tier, "damage_area", 3)},
                     "centroid_height_m": round(d.centroid_height, 3),
                     "bbox_on_surface_m": [round(float(x), 3) for x in d.bbox], "score": round(d.score, 3),
@@ -256,7 +262,7 @@ def _assemble(cid, tier, device, backend, rooms, names, adjacency, overlap, meth
     return {
         "schema_version": "1.0", "capture_id": cid, "tier": tier, "device": device, "pipeline_version": pipeline_version(),
         "backend": backend, "units": "metric", "rooms": out_rooms,
-        "stitched": {"adjacency": adjacency, "net_floor_area_m2": M(net, tier, "footprint", 3),
+        "stitched": {"adjacency": adjacency, "net_floor_area_m2": M(net, tier, "footprint", 3, key="net_area"),
                      "gross_footprint_m2": M(gross, tier, "footprint", 3), "overlap_m2": round(overlap, 4),
                      "method": method, "drift": drift_info},
         "damage": dmg, "concealed_flags": flags, "scope": sc,

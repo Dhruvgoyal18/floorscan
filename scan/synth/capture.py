@@ -261,13 +261,15 @@ def render_lidar_frames(spec: PropertySpec, walk: list[str], seed: int = 0, drif
     K_d[:2] *= LIDAR_W / RGB_W
     if scale_bias is None:
         scale_bias = float(rng.normal(0, 0.0015))
-    out = []
-    for T in poses:
-        rgb = render(scene, T, K_rgb, RGB_W, RGB_H, rgb=True, rng=rng)["rgb"] if with_rgb else None
-        r_d = render(scene, T, K_d, LIDAR_W, LIDAR_H, rgb=False)
-        depth, conf = lidar_depth(r_d["depth"], r_d["phantom"], rng, scale_bias)
-        out.append((rgb, depth, conf))
-    return {"frames": out, "poses": poses, "odo": odo, "K_rgb": K_rgb, "K_d": K_d, "scale_bias": scale_bias}
+    def frames():  # generator: a multi-room walk is ~700 frames; never hold all RGB images in memory
+        for T in poses:
+            rgb = render(scene, T, K_rgb, RGB_W, RGB_H, rgb=True, rng=rng)["rgb"] if with_rgb else None
+            if rgb is not None:
+                rgb = (rgb * 255).astype(np.uint8)
+            r_d = render(scene, T, K_d, LIDAR_W, LIDAR_H, rgb=False)
+            depth, conf = lidar_depth(r_d["depth"], r_d["phantom"], rng, scale_bias)
+            yield rgb, depth, conf
+    return {"frames": frames(), "poses": poses, "odo": odo, "K_rgb": K_rgb, "K_d": K_d, "scale_bias": scale_bias}
 
 
 def write_stray(out: Path, spec: PropertySpec, walk: list[str], seed: int = 0, drift: DriftModel | None = None,
@@ -283,7 +285,7 @@ def write_stray(out: Path, spec: PropertySpec, walk: list[str], seed: int = 0, d
     for i, ((rgb, depth, conf), To) in enumerate(zip(r["frames"], r["odo"])):
         Image.fromarray(np.round(depth * 1000).astype(np.uint16)).save(out / "depth" / f"{i:06d}.png")
         Image.fromarray(conf).save(out / "confidence" / f"{i:06d}.png")
-        vw.write(cv2.cvtColor((rgb * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
+        vw.write(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
         R_ar = M_AR2ZUP.T @ To[:3, :3]
         t_ar = M_AR2ZUP.T @ To[:3, 3]
         q = Rotation.from_matrix(R_ar).as_quat()  # x, y, z, w
@@ -307,7 +309,7 @@ def lidar_frames_as_frames(r: dict, use_true_poses: bool = False):
     for i, ((rgb, depth, conf), T, To) in enumerate(zip(r["frames"], r["poses"], r["odo"])):
         frames.append(Frame(index=i, T_wc=(T if use_true_poses else To).copy(), K=r["K_d"].copy(), depth=depth,
                             conf=conf.astype(np.float32) / 2.0,
-                            load_image=(lambda im=rgb: (im * 255).astype(np.uint8)) if rgb is not None else None,
+                            load_image=(lambda im=rgb: im) if rgb is not None else None,
                             timestamp=i * 0.1, name=f"{i:06d}"))
     return frames
 

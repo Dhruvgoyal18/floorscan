@@ -303,7 +303,7 @@ def ground_truth(spec: PropertySpec, rooms: list[str] | None = None) -> dict:
                             "surface": "ceiling" if d.surface == "C" else "wall",
                             **({"wall": SIDES.index(d.surface)} if d.surface != "C" else {}),
                             "area": round(tr["area"], 5), "width": round(tr["width"], 4), "height": round(tr["height"], 4),
-                            "centroid_height": d.z if d.surface != "C" else r.ceiling})
+                            "u": d.u, "centroid_height": d.z if d.surface != "C" else r.ceiling})
         out["rooms"].append({
             "id": r.name,
             "walls": [round(r.wall_length(s), 4) for s in SIDES],
