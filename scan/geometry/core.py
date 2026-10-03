@@ -309,7 +309,11 @@ def _segment_rooms(ctx, lines: list[Line], warnings: list[str]) -> list[RoomEst]
             b0, b1 = int((ys[j] - gy[0]) / r), int((ys[j + 1] - gy[0]) / r)
             blk = cov[a0:max(a1, a0 + 1), b0:max(b1, b0 + 1)]
             frac[i, j] = blk.mean() if blk.size else 0.0
-    interior = frac >= cfg.cover_thresh
+    # thin cells (wall-thickness strips) pick up coverage from the dilation of neighbouring floors;
+    # they must be covered for real to count as interior
+    dxs, dys = np.diff(xs)[:, None], np.diff(ys)[None, :]
+    thin = np.minimum(dxs, dys) < 0.25
+    interior = np.where(thin, frac >= 0.6, frac >= cfg.cover_thresh)
     ctx["debug_cells"] = (xs, ys, frac)
 
     def separated(axis, coord, t0, t1):

@@ -1,0 +1,167 @@
+name: synthetic
+note: rendered by scan/synth; regenerate with make synthetic
+captures:
+- id: home_multiroom_lidar_t1
+  property: home
+  set: multiroom
+  tier: lidar
+  take: 1
+  path: data/raw/synthetic/home/multiroom/lidar/t1
+  rooms:
+  - bath
+  - bedroom
+  - hall
+  - kitchen
+  - living
+  holdout: false
+  device: synthetic iPhone 15 Pro
+- id: home_multiroom_video_t1
+  property: home
+  set: multiroom
+  tier: video
+  take: 1
+  path: data/raw/synthetic/home/multiroom/video/t1
+  rooms:
+  - bath
+  - bedroom
+  - hall
+  - kitchen
+  - living
+  holdout: false
+  device: synthetic iPhone 15
+- id: home_multiroom_photo_t1
+  property: home
+  set: multiroom
+  tier: photo
+  take: 1
+  path: data/raw/synthetic/home/multiroom/photo/t1
+  rooms:
+  - bath
+  - bedroom
+  - hall
+  - kitchen
+  - living
+  holdout: false
+  device: synthetic iPhone 15
+- id: home_bedroom_lidar_t1
+  property: home
+  set: bedroom
+  tier: lidar
+  take: 1
+  path: data/raw/synthetic/home/bedroom/lidar/t1
+  rooms:
+  - bedroom
+  holdout: false
+  device: synthetic iPhone 15 Pro
+- id: home_bedroom_photo_t1
+  property: home
+  set: bedroom
+  tier: photo
+  take: 1
+  path: data/raw/synthetic/home/bedroom/photo/t1
+  rooms:
+  - bedroom
+  holdout: false
+  device: synthetic iPhone 15
+- id: home_bedroom_video_t1
+  property: home
+  set: bedroom
+  tier: video
+  take: 1
+  path: data/raw/synthetic/home/bedroom/video/t1
+  rooms:
+  - bedroom
+  holdout: false
+  device: synthetic iPhone 15
+- id: home_bedroom_lidar_t2
+  property: home
+  set: bedroom
+  tier: lidar
+  take: 2
+  path: data/raw/synthetic/home/bedroom/lidar/t2
+  rooms:
+  - bedroom
+  holdout: false
+  device: synthetic iPhone 15 Pro
+- id: home_bedroom_photo_t2
+  property: home
+  set: bedroom
+  tier: photo
+  take: 2
+  path: data/raw/synthetic/home/bedroom/photo/t2
+  rooms:
+  - bedroom
+  holdout: false
+  device: synthetic iPhone 15
+- id: home_bedroom_video_t2
+  property: home
+  set: bedroom
+  tier: video
+  take: 2
+  path: data/raw/synthetic/home/bedroom/video/t2
+  rooms:
+  - bedroom
+  holdout: false
+  device: synthetic iPhone 15
+- id: home_bedroom_lidar_t3
+  property: home
+  set: bedroom
+  tier: lidar
+  take: 3
+  path: data/raw/synthetic/home/bedroom/lidar/t3
+  rooms:
+  - bedroom
+  holdout: false
+  device: synthetic iPhone 15 Pro
+- id: home_bedroom_photo_t3
+  property: home
+  set: bedroom
+  tier: photo
+  take: 3
+  path: data/raw/synthetic/home/bedroom/photo/t3
+  rooms:
+  - bedroom
+  holdout: false
+  device: synthetic iPhone 15
+- id: holdout2026_multiroom_lidar_t1
+  property: holdout2026
+  set: multiroom
+  tier: lidar
+  take: 1
+  path: data/raw/synthetic/holdout2026/multiroom/lidar/t1
+  rooms:
+  - hall
+  - north1
+  - north2
+  - south1
+  - south2
+  holdout: true
+  device: synthetic iPhone 15 Pro
+- id: holdout2026_multiroom_video_t1
+  property: holdout2026
+  set: multiroom
+  tier: video
+  take: 1
+  path: data/raw/synthetic/holdout2026/multiroom/video/t1
+  rooms:
+  - hall
+  - north1
+  - north2
+  - south1
+  - south2
+  holdout: true
+  device: synthetic iPhone 15
+- id: holdout2026_multiroom_photo_t1
+  property: holdout2026
+  set: multiroom
+  tier: photo
+  take: 1
+  path: data/raw/synthetic/holdout2026/multiroom/photo/t1
+  rooms:
+  - hall
+  - north1
+  - north2
+  - south1
+  - south2
+  holdout: true
+  device: synthetic iPhone 15

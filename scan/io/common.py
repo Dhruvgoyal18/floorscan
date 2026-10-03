@@ -42,8 +42,11 @@ def build_observations(frames: list[Frame], tier: str, group: str, model: DepthM
         h, w = depth.shape
         vv, uu = np.mgrid[0:h:far_stride, 0:w:far_stride]
         vv, uu = vv.ravel(), uu.ravel()
-        bad = ~good[vv, uu]
-        dist = np.where(depth[vv, uu] > 0.15, depth[vv, uu], model.far_dist)[bad]
+        # see-through evidence only from rays that truly went far: no return, or beyond sensor range.
+        # Low-confidence in-range pixels (edge smear) are neither geometry nor evidence.
+        dz = depth[vv, uu]
+        bad = (dz <= 0.15) | (dz >= model.max_depth)
+        dist = np.where(dz > 0.15, dz, model.far_dist)[bad]
         far.append(pixel_rays(fr.K, fr.T_wc, vv[bad], uu[bad], dist))
         far_f.append(np.full(int(bad.sum()), k, np.int32))
     if not pts:

@@ -44,7 +44,8 @@ def _see_through(ctx, w: WallEst, l: Line, c: float, height: float):
         if len(Q) == 0:
             continue
         depth = (c - Q[:, a]) * f
-        sel = depth > max(0.04, 3 * ctx["sigma_med"])
+        # beyond the wall's surface layer (casings, plaster, residual registration error of a few cm)
+        sel = depth > max(0.06, 3 * ctx["sigma_med"])
         if not sel.any():
             continue
         q = Q[sel]
@@ -161,6 +162,14 @@ def detect_openings(ctx, lines, room: RoomEst, warnings: list[str]) -> list[Open
             else:
                 continue
             if fill < 0.45:
+                continue
+            # evidence must be dense, not a few stray rays bridged by the morphological closing
+            raw = ((see >= 1) & (occ <= 1))[ti.min():ti.max() + 1, zi.min():zi.max() + 1].mean()
+            if raw < 0.2:
+                continue
+            # a real opening has (almost) no wall surface inside its bounding box
+            box_occ = (occ[ti.min():ti.max() + 1, zi.min():zi.max() + 1] > 1).mean()
+            if box_occ > 0.35:
                 continue
             mirror = False
             for li, mt0, mt1, mz0, mz1 in ctx.get("mirrors", []):

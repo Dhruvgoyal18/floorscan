@@ -56,15 +56,18 @@ def main():
     plan.append(("holdout2026_multiroom_photo_t1", "holdout2026", "multiroom", "photo", 1, ho_rooms, 103, True))
 
     only = set(a.only.split(",")) if a.only else None
+    manifest_path = a.root / "benchmark_synthetic.yaml"
     scenes = {k: build_scene(v) for k, v in props.items()}
     manifest = {"name": "synthetic", "note": "rendered by scan/synth; regenerate with make synthetic", "captures": []}
     for cid, prop, cset, tier, take, rooms, seed, holdout in plan:
+        path = raw / prop / cset / tier / f"t{take}"
+        manifest["captures"].append({"id": cid, "property": prop, "set": cset, "tier": tier, "take": take,
+                                     "path": str(path), "rooms": sorted(set(rooms)), "holdout": holdout,
+                                     "device": "synthetic iPhone 15 Pro" if tier == "lidar" else "synthetic iPhone 15"})
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    for cid, prop, cset, tier, take, rooms, seed, holdout in plan:
         spec = props[prop]
         path = raw / prop / cset / tier / f"t{take}"
-        entry = {"id": cid, "property": prop, "set": cset, "tier": tier, "take": take, "path": str(path),
-                 "rooms": sorted(set(rooms)), "holdout": holdout, "device": "synthetic iPhone 15 Pro" if tier == "lidar"
-                 else "synthetic iPhone 15"}
-        manifest["captures"].append(entry)
         if only and cid not in only:
             continue
         if path.exists() and not only:
@@ -77,8 +80,7 @@ def main():
         else:
             write_photos(path, spec, rooms, seed=seed, scene=scenes[prop])
         print(f"{cid}: {time.time() - t0:.0f}s", flush=True)
-    (a.root / "benchmark_synthetic.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    print("manifest:", a.root / "benchmark_synthetic.yaml")
+    print("manifest:", manifest_path)
 
 
 if __name__ == "__main__":
