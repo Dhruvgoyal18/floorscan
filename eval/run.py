@@ -51,6 +51,10 @@ def main(argv=None):
     man = yaml.safe_load(a.manifest.read_text())
     gt_dir = a.manifest.parent / "gt" / man["name"]
     caps = man["captures"]
+    base = a.manifest.resolve().parent.parent   # capture paths are relative to the repo holding the manifest
+    for c in caps:
+        if not Path(c["path"]).is_absolute():
+            c["path"] = str(base / c["path"])
     if a.only:
         caps = [c for c in caps if c["id"] in a.only.split(",")]
     matches, results, timings, ablation = [], {}, [], []

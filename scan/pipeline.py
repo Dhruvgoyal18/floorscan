@@ -211,7 +211,8 @@ def _room_name(hint: str | None, k: int) -> str:
 
 def _overlap(rooms) -> float:
     tot = 0.0
-    polys = [Polygon(r.polygon) for r in rooms]
+    from shapely.validation import make_valid
+    polys = [make_valid(Polygon(r.polygon)) for r in rooms]
     for i in range(len(polys)):
         for j in range(i + 1, len(polys)):
             tot += polys[i].intersection(polys[j]).area

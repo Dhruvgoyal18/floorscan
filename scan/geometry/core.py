@@ -245,6 +245,7 @@ def extract_plan(obs: Observations, cfg: CoreConfig | None = None) -> PlanEst:
     adjacency, thickness = _adjacency(rooms, lines)
     if cfg.bootstrap > 0:
         _bootstrap(ctx, lines, rooms, obs, cfg)
+    warnings += ctx.get("warnings_extra", [])
     return PlanEst(rooms=rooms, lines=lines, R_plan=R, z0=floor_w, adjacency=adjacency, warnings=warnings,
                    wall_thickness=thickness, manhattan_share=share)
 
@@ -577,6 +578,12 @@ def _measure_room(ctx, lines, room: RoomEst, rng: np.random.Generator | None = N
     vals = np.array([c.value for c in coords])
     ses = np.array([c.se for c in coords])
     ring = ring_from(vals)
+    if not Polygon(ring).is_valid:
+        # refined planes crossed over (a sliver notch thinner than the fit noise): keep the structural
+        # coordinates for this room and widen nothing silently - report it
+        vals = np.array([(w.start[1] if w.axis == 1 else w.start[0]) for w in room.walls])
+        ring = ring_from(vals)
+        ctx.setdefault("warnings_extra", []).append(f"room {room.id}: refined walls self-intersected; structural outline kept")
     room.polygon = ring
     for k, w in enumerate(room.walls):
         w.start, w.end = ring[k], ring[(k + 1) % n]
@@ -589,7 +596,8 @@ def _measure_room(ctx, lines, room: RoomEst, rng: np.random.Generator | None = N
             w.t_range = (min(ring[k][1], ring[(k + 1) % n][1]), max(ring[k][1], ring[(k + 1) % n][1]))
     # area / perimeter uncertainty by Monte Carlo over wall coordinates (handles any rectilinear shape)
     samp = vals[None, :] + rng.normal(size=(200, n)) * ses[None, :]
-    areas = [abs(Polygon(ring_from(s)).area) for s in samp]
+    from shapely.validation import make_valid
+    areas = [abs(make_valid(Polygon(ring_from(s))).area) for s in samp]
     perims = [Polygon(ring_from(s)).length for s in samp]
     room.area = Estimate(float(abs(Polygon(ring).area)), float(np.std(areas)), all(c.observed for c in coords))
     room.perimeter = Estimate(float(Polygon(ring).length), float(np.std(perims)), all(c.observed for c in coords))
