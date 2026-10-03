@@ -90,17 +90,21 @@ def _jamb(ctx, l, c, t_guess, side, z_lo, z_hi, sig):
     # lies at the same depth range and would otherwise drag the jamb outward
     front = (ctx["cams"][ctx["F"], a] - c) * f > 0.05
     rev = zsel & (depth > dmin) & (depth < REVEAL_MAX) & front
+    dbg = ctx.setdefault("jamb_debug", [])
     if rev.sum() >= 15:
         t = P[rev, b]
         m = float(np.median(t))
         mad = float(np.median(np.abs(t - m))) * 1.4826
         n_eff = max(1, len(np.unique(np.floor(P[rev, 2] / 0.1))))
+        dbg.append({"path": "reveal", "n": int(rev.sum()), "t": m, "side": side, "mad": mad})
         return Estimate(m, _se(mad, n_eff, sig))
     face = zsel & (np.abs(depth) < dmin)
     if face.sum() >= 15:
         t = P[face, b]
         m = float(np.percentile(t, 98) if side < 0 else np.percentile(t, 2))
+        dbg.append({"path": "face", "n": int(face.sum()), "t": m, "side": side})
         return Estimate(m, max(0.01, 2 * sig))
+    dbg.append({"path": "none", "n": 0, "t": float(t_guess), "side": side})
     return Estimate(float(t_guess), 0.03, observed=False)
 
 

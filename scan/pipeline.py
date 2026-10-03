@@ -170,6 +170,15 @@ def run(capture: Path, out_dir: Path, tier: str | None = None, backend: str = "a
     else:
         method = "single capture session" + (" (drift-corrected)" if drift and tier != "photo" else "")
     adjacency, thickness = _adjacency(rooms, None)
+    if tier == "photo" and len(rooms) > 1:
+        # the solver's doorway pairs ARE the adjacency evidence (centre proximity after scale errors is not)
+        adjacency = [e for e in adjacency if e["kind"] == "shared_wall"]
+        for da, db in pl.pairs:
+            ra, rb = rooms[da.room], rooms[db.room]
+            oa, ob = ra.openings[da.idx], rb.openings[db.idx]
+            oa.connects_to, ob.connects_to = rb.id, ra.id
+            adjacency.append({"rooms": [ra.id, rb.id], "kind": "door", "via": [oa.id, ob.id]})
+        thickness = None
     overlap = _overlap(rooms)
     timing["stitch"] = time.time() - t
 

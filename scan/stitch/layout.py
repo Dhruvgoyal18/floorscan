@@ -203,7 +203,7 @@ def _close_loops(pl: Placement, rooms, doors, wall_t) -> Placement:
             ca, na = _world(pl, da)
             cb, nb = _world(pl, db)
             if np.allclose(na, -nb, atol=1e-6) and np.linalg.norm(ca - na * wall_t - cb) < 0.35 \
-                    and abs(da.width - db.width) < 0.15:
+                    and abs(da.width - db.width) < 0.25:
                 pl.pairs.append((da, db))
                 used |= {(da.room, da.idx), (db.room, db.idx)}
     return pl

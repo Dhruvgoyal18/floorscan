@@ -130,6 +130,38 @@ def _robust_level(z: np.ndarray, sigma_med: float, window: float = 0.02):
     return float(m), float(z[sel].std()), int(sel.sum())
 
 
+def surface_noise(P: np.ndarray, planarity: np.ndarray, n: int = 20000, k: int = 16) -> float:
+    """Median RMS distance of points to their local tangent plane, over planar neighbourhoods."""
+    sel = np.nonzero(planarity > 0.8)[0]
+    if len(sel) < 100:
+        return 0.01
+    sel = sel[np.linspace(0, len(sel) - 1, min(n, len(sel))).astype(int)]
+    tree = cKDTree(P)
+    _, nb = tree.query(P[sel], k=k, workers=-1)
+    Q = P[nb] - P[nb].mean(1, keepdims=True)
+    C = np.einsum("nki,nkj->nij", Q, Q) / k
+    from .cloud import _smallest_eig_sym3
+    _, l3, _ = _smallest_eig_sym3(C)
+    return float(np.median(np.sqrt(l3)))
+
+
+def plane_spread(P: np.ndarray, N: np.ndarray) -> float:
+    """Robust spread of points about the four strongest wall planes (captures cross-view misregistration,
+    which local kNN scatter does not)."""
+    vals = []
+    for a in (0, 1):
+        for f in (1, -1):
+            x = P[N[:, a] * f > 0.9, a]
+            if len(x) < 500:
+                continue
+            h, e = np.histogram(x, bins=np.arange(x.min(), x.max() + 0.01, 0.005))
+            m = e[np.argmax(ndimage.gaussian_filter1d(h.astype(float), 2))]
+            near = x[np.abs(x - m) < 0.25] - m
+            if len(near) > 200:
+                vals.append(1.4826 * float(np.median(np.abs(near - np.median(near)))))
+    return float(np.median(vals)) if vals else 0.0
+
+
 def _n_eff(a: np.ndarray, b: np.ndarray, cell: float = 0.1) -> int:
     """Number of distinct cell x cell patches: a conservative count of independent samples."""
     if len(a) == 0:
@@ -158,7 +190,11 @@ def extract_plan(obs: Observations, cfg: CoreConfig | None = None) -> PlanEst:
     warnings: list[str] = list(obs.warnings)
     cloud = prepare_cloud(obs, cfg)
     P, N, pl, S = cloud["P"], cloud["N"], cloud["pl"], cloud["S"]
-    sigma_med = float(np.median(S)) if len(S) else 0.01
+    # Tolerance scale for "is this point on that surface": the measured local thickness of planar
+    # surfaces, not the per-point absolute range error. Learned depth errors are mostly smooth
+    # (scale/low-frequency), so absolute sigma (5-7 cm on video) would make every window swallow
+    # neighbouring surfaces; local thickness stays at the cm level.
+    sigma_abs = float(np.median(S)) if len(S) else 0.01
 
     # --- plan frame: Manhattan yaw, floor at z = 0
     yaw, share = manhattan_yaw(N, pl)
@@ -167,6 +203,9 @@ def extract_plan(obs: Observations, cfg: CoreConfig | None = None) -> PlanEst:
     R = rot_z(-yaw)
     P = P @ R.T
     N = N @ R.T
+    # thickness of real surfaces = max(local scatter, spread of the strongest walls across views)
+    sigma_med = max(surface_noise(P, pl), plane_spread(P, N))
+    sigma_med = float(np.clip(sigma_med, 0.003, sigma_abs))
     up = (N[:, 2] > 0.85) & (pl > 0.5)
     dn = (N[:, 2] < -0.85) & (pl > 0.5)
     floor_w, _, _ = _robust_level(P[up, 2], sigma_med) if up.sum() > 20 else (np.nan, 0, 0)
@@ -188,6 +227,7 @@ def extract_plan(obs: Observations, cfg: CoreConfig | None = None) -> PlanEst:
     samp = P[np.linspace(0, len(P) - 1, min(len(P), 5000)).astype(int)]
     spacing = float(np.median(cKDTree(P).query(samp, k=2)[0][:, 1])) if len(P) > 10 else cfg.voxel
     ctx = dict(P=P, N=N, pl=pl, S=S, F=F, cams=cams, far=far, far_f=obs.rays_far_frame, sigma_med=sigma_med,
+               sigma_abs=sigma_abs,
                ceil_g=ceil_g, cfg=cfg, spacing=spacing)
 
     lines, grids = _detect_lines(ctx)
@@ -311,9 +351,29 @@ def _segment_rooms(ctx, lines: list[Line], warnings: list[str]) -> list[RoomEst]
             frac[i, j] = blk.mean() if blk.size else 0.0
     # thin cells (wall-thickness strips) pick up coverage from the dilation of neighbouring floors;
     # they must be covered for real to count as interior
-    dxs, dys = np.diff(xs)[:, None], np.diff(ys)[None, :]
-    thin = np.minimum(dxs, dys) < 0.25
-    interior = np.where(thin, frac >= 0.6, frac >= cfg.cover_thresh)
+    # A wall strip is bounded by the two faces of one wall, both actually present along the strip:
+    # the face of the room on the low side (facing -axis) and of the room on the high side (+axis).
+    def face_cover(axis, facing, coord, t0, t1):
+        g = grids[1 - axis]
+        k0, k1 = int((t0 - g[0]) / 0.05), int(np.ceil((t1 - g[0]) / 0.05))
+        best = 0.0
+        for l in lines:
+            if l.axis == axis and l.facing == facing and abs(l.c - coord) < 0.025:
+                seg = l.occupancy[max(k0, 0):max(k1, k0 + 1)]
+                best = max(best, float(seg.mean()) if seg.size else 0.0)
+        return best
+
+    nx_, ny_ = len(xs) - 1, len(ys) - 1
+    wall_strip = np.zeros((nx_, ny_), bool)
+    for i in range(nx_):
+        for j in range(ny_):
+            if xs[i + 1] - xs[i] < 0.35 and face_cover(0, -1, xs[i], ys[j], ys[j + 1]) >= 0.5 \
+                    and face_cover(0, 1, xs[i + 1], ys[j], ys[j + 1]) >= 0.5:
+                wall_strip[i, j] = True
+            elif ys[j + 1] - ys[j] < 0.35 and face_cover(1, -1, ys[j], xs[i], xs[i + 1]) >= 0.5 \
+                    and face_cover(1, 1, ys[j + 1], xs[i], xs[i + 1]) >= 0.5:
+                wall_strip[i, j] = True
+    interior = np.where(wall_strip, frac >= 0.6, frac >= cfg.cover_thresh)
     ctx["debug_cells"] = (xs, ys, frac)
 
     def separated(axis, coord, t0, t1):
@@ -575,15 +635,19 @@ def _filter_mirror_points(ctx, lines, rooms, warnings):
             within = (cross[:, b] > t0) & (cross[:, b] < t1) & (cross[:, 2] > 0) & (cross[:, 2] < r.ceil_z.value if r.ceil_z.value else 3)
             idx = np.nonzero(beh)[0][within]
             cross = cross[within]
-            par = np.abs(N[idx, a]) > 0.8
+            # evidence = wall-parallel surfaces well behind the wall: points a few cm behind are the wall
+            # itself (registration error) and reflect onto the wall, which would fake a match
+            par = (np.abs(N[idx, a]) > 0.8) & (depth[idx] > 0.3)
             ref_idx = np.nonzero(inside & (np.abs(N[:, a]) > 0.8))[0]
             if par.sum() < 50 or len(ref_idx) < 50:
                 continue
             Q = P[idx[par]].copy()
             Q[:, a] = 2 * l.c - Q[:, a]
             dist, _ = cKDTree(P[ref_idx]).query(Q, k=1, workers=-1)
-            hit = dist < max(0.03, 3 * sig)
-            if hit.mean() < 0.6 or hit.sum() < 50:
+            # phantom geometry carries the error of the folded path: allow 2 % of the distance behind
+            hit = dist < np.maximum(max(0.03, 3 * sig), 0.02 * depth[idx[par]])
+            ctx.setdefault("mirror_debug", []).append((w.id, int(par.sum()), float(hit.mean())))
+            if hit.mean() < 0.4 or hit.sum() < 500:
                 continue
             # the mirror's extent = the see-through blob(s) on this wall that the matched phantoms cross
             g = 0.04
