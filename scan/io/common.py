@@ -24,7 +24,7 @@ LIDAR_DEPTH = DepthModel(abs=0.002, rel=0.003, conf_min=0.5, max_depth=4.5)
 
 
 def build_observations(frames: list[Frame], tier: str, group: str, model: DepthModel, voxel: float = 0.01,
-                       far_stride: int = 4, point_stride: int = 1, warnings: list[str] | None = None,
+                       far_stride: int = 2, point_stride: int = 1, warnings: list[str] | None = None,
                        meta: dict | None = None) -> Observations:
     pts, sig, fidx, far, far_f = [], [], [], [], []
     for k, fr in enumerate(frames):

@@ -120,6 +120,8 @@ def detect_openings(ctx, lines, room: RoomEst, warnings: list[str]) -> list[Open
         see = _see_through(ctx, w, l, c, height)
         occ = _occupancy(ctx, w, l, c, height, sig)
         open_ = (see >= 1) & (occ <= 1)
+        # bridge thin horizontal gaps (rays at camera height go far and are sparse) before labelling
+        open_ = ndimage.binary_closing(open_, structure=np.ones((3, 11)), iterations=1)
         open_ = ndimage.binary_closing(open_, structure=np.ones((3, 3)), iterations=2)
         open_ = ndimage.binary_opening(open_, structure=np.ones((3, 3)), iterations=1)
         lab, n = ndimage.label(open_)
@@ -133,6 +135,12 @@ def detect_openings(ctx, lines, room: RoomEst, warnings: list[str]) -> list[Open
             dens = float(np.median(see[lab == comp]))
             if dens < 2:
                 continue
+            # Below the see-through region: a window has wall (occupied face) under its sill; a door has
+            # none -- the bottom of a doorway is often simply not looked at (or hidden by furniture).
+            below = occ[ti.min():ti.max() + 1, :max(1, int(za / CELL))]
+            sill_wall = (below > 1).any(axis=0).mean() if below.size else 0.0
+            if 0.15 < za < 0.7 and sill_wall < 0.3 and zb >= 1.5 and width_g >= 0.45:
+                za = 0.0
             if za <= 0.15 and zb >= 1.5 and width_g >= 0.45:
                 kind = "door" if zb < height - 0.1 else "opening"
                 z_lo, z_hi = 0.3, min(1.8, zb - 0.15)
@@ -142,6 +150,15 @@ def detect_openings(ctx, lines, room: RoomEst, warnings: list[str]) -> list[Open
             else:
                 continue
             if fill < 0.45:
+                continue
+            mirror = False
+            for li, mt0, mt1, mz0, mz1 in ctx.get("mirrors", []):
+                if li == w.line:
+                    ov_t = max(0.0, min(tb, mt1) - max(ta, mt0))
+                    ov_z = max(0.0, min(zb, mz1) - max(za, mz0))
+                    if ov_t * ov_z > 0.5 * (tb - ta) * (zb - za):
+                        mirror = True
+            if mirror:
                 continue
             tl = _jamb(ctx, l, c, ta, -1, z_lo, z_hi, sig)
             tr = _jamb(ctx, l, c, tb, +1, z_lo, z_hi, sig)

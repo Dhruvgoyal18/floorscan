@@ -192,11 +192,12 @@ def extract_plan(obs: Observations, cfg: CoreConfig | None = None) -> PlanEst:
     rooms = _segment_rooms(ctx, lines, warnings)
     if not rooms:
         raise RuntimeError("no room recovered: check that the capture shows floor, ceiling and walls")
-    _filter_mirror_points(ctx, lines, rooms, warnings)
     for k, r in enumerate(rooms):
         r.id = f"R{k + 1}"
         for j, w in enumerate(r.walls):
             w.id = f"{r.id}W{j + 1}"
+        _measure_room(ctx, lines, r)
+    _filter_mirror_points(ctx, lines, rooms, warnings)
     _measure_all(ctx, lines, rooms, warnings)
     adjacency, thickness = _adjacency(rooms, lines)
     if cfg.bootstrap > 0:
@@ -495,41 +496,73 @@ def _measure_all(ctx, lines, rooms, warnings):
 
 
 def _filter_mirror_points(ctx, lines, rooms, warnings):
-    """Mirrors make the sensor see a reflected copy of the room behind the wall. Points behind a room
-    wall whose reflection across that wall lands on real in-room geometry are mirror phantoms."""
+    """Mirrors make the sensor see a reflected copy of the room behind the wall.
+
+    For each room wall, take points observed *behind* it whose surface is parallel to the wall,
+    reflect them across the wall plane, and check whether they land on real in-room surfaces of the
+    same orientation. Floors, ceilings and perpendicular walls are reflection-invariant (a real door
+    shows them too), so only parallel surfaces are used as evidence. If most of them match, the wall
+    holds a mirror: every point seen *through* that region is a phantom and is dropped.
+    """
     from shapely import contains_xy
-    P = ctx["P"]
-    union = unary_union([Polygon(r.polygon).buffer(0.3) for r in rooms])
-    outside = ~contains_xy(union, P[:, 0], P[:, 1])
-    if outside.sum() < 50:
-        return
-    inside_idx = np.nonzero(~outside)[0]
-    tree = cKDTree(P[inside_idx])
+    P, N, F, cams = ctx["P"], ctx["N"], ctx["F"], ctx["cams"]
+    sig = ctx["sigma_med"]
     drop = np.zeros(len(P), bool)
     for r in rooms:
+        poly = Polygon(r.polygon)
+        inside = contains_xy(poly.buffer(0.05), P[:, 0], P[:, 1])  # includes the walls themselves
         for w in r.walls:
             if w.line is None:
                 continue
             l = lines[w.line]
             a, b = l.axis, 1 - l.axis
             t0, t1 = w.t_range
-            beh = outside & ((l.c - P[:, a]) * l.facing > 0.05) & ((l.c - P[:, a]) * l.facing < 4.0) & \
-                (P[:, b] > t0) & (P[:, b] < t1)
+            depth = (l.c - P[:, a]) * l.facing
+            o = cams[F]
+            oin = (o[:, a] - l.c) * l.facing > 0.05
+            beh = (depth > max(0.04, 3 * sig)) & (depth < 4.0) & oin
             if beh.sum() < 50:
                 continue
-            Q = P[beh].copy()
+            lam = (l.c - o[beh, a]) / (P[beh, a] - o[beh, a])
+            cross = o[beh] + lam[:, None] * (P[beh] - o[beh])
+            within = (cross[:, b] > t0) & (cross[:, b] < t1) & (cross[:, 2] > 0) & (cross[:, 2] < r.ceil_z.value if r.ceil_z.value else 3)
+            idx = np.nonzero(beh)[0][within]
+            cross = cross[within]
+            par = np.abs(N[idx, a]) > 0.8
+            ref_idx = np.nonzero(inside & (np.abs(N[:, a]) > 0.8))[0]
+            if par.sum() < 50 or len(ref_idx) < 50:
+                continue
+            Q = P[idx[par]].copy()
             Q[:, a] = 2 * l.c - Q[:, a]
-            dist, _ = tree.query(Q, k=1, workers=-1)
-            hit = dist < max(0.03, 3 * ctx["sigma_med"])
-            if hit.mean() > 0.5 and hit.sum() > 100:
-                idx = np.nonzero(beh)[0][hit]
-                drop[idx] = True
-                warnings.append(f"mirror detected on wall {w.id or '?'}: {hit.sum()} phantom points removed")
+            dist, _ = cKDTree(P[ref_idx]).query(Q, k=1, workers=-1)
+            hit = dist < max(0.03, 3 * sig)
+            if hit.mean() < 0.6 or hit.sum() < 50:
+                continue
+            # the mirror's extent = the see-through blob(s) on this wall that the matched phantoms cross
+            g = 0.04
+            ti = ((cross[:, b] - t0) / g).astype(int)
+            zi = (cross[:, 2] / g).astype(int)
+            grid = np.zeros((ti.max() + 1, zi.max() + 1), bool)
+            grid[ti, zi] = True
+            grid = ndimage.binary_closing(grid, iterations=2)
+            lab, _ = ndimage.label(grid)
+            mlabels = np.unique(lab[ti[par][hit], zi[par][hit]])
+            mlabels = mlabels[mlabels > 0]
+            inreg = np.isin(lab[ti, zi], mlabels)
+            drop[idx[inreg]] = True
+            if inreg.any():
+                ctx.setdefault("mirrors", []).append(
+                    (w.line, float(cross[inreg, b].min()), float(cross[inreg, b].max()),
+                     float(cross[inreg, 2].min()), float(cross[inreg, 2].max())))
+            ext_t = np.ptp(cross[inreg, b]) if inreg.any() else 0
+            ext_z = np.ptp(cross[inreg, 2]) if inreg.any() else 0
+            warnings.append(f"mirror detected on wall {w.id} (~{ext_t:.2f} x {ext_z:.2f} m); "
+                            f"{int(inreg.sum())} phantom points removed")
     if drop.any():
         keep = ~drop
         for k in ("P", "N", "pl", "S", "F"):
             ctx[k] = ctx[k][keep]
-        ctx["mirror_planes"] = True
+        ctx["n_mirror_points"] = int(drop.sum())
 
 
 def _adjacency(rooms, lines):

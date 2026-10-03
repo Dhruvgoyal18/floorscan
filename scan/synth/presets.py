@@ -53,3 +53,20 @@ def home() -> PropertySpec:
     return PropertySpec(name="home", rooms=[hall, living, kitchen, bedroom, bath], openings=ops, damage=damage,
                         wall_t=t, yaw_deg=23.0, offset=(2.0, -1.0),
                         walk=["hall", "living", "kitchen", "hall", "bedroom", "hall", "bath", "hall"])
+
+
+def two_rooms(yaw: float = -31.0) -> PropertySpec:
+    """Two rooms sharing a 0.12 m wall with a door: adjacency and wall-thickness checks."""
+    t = 0.12
+    a = RoomSpec("a", 0.0, 0.0, 4.2, 3.1, 2.55)
+    b = RoomSpec("b", 4.2 + t, 0.0, 7.3, 3.4, 2.47)
+    ops = [OpeningSpec("a", "E", 1.0, 0.84, 2.03, name="d_ab"),
+           OpeningSpec("b", "N", 0.8, 1.1, 1.1, sill=1.0, glass=True, name="w_b")]
+    return PropertySpec(name="two_rooms", rooms=[a, b], openings=ops, wall_t=t, yaw_deg=yaw, offset=(-0.5, 2.0),
+                        walk=["a", "b", "a"])
+
+
+def mirror_room() -> PropertySpec:
+    r = RoomSpec("m", 0.0, 0.0, 3.0, 2.6, 2.45, mirror=("E", 0.6, 1.6, 0.9, 2.0))
+    ops = [OpeningSpec("m", "S", 0.4, 0.80, 2.03, name="door")]
+    return PropertySpec(name="mirror", rooms=[r], openings=ops, yaw_deg=8.0, walk=["m"])

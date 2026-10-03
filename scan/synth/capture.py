@@ -230,32 +230,47 @@ def _to_world(spec: PropertySpec, poses_local):
     return [Tw @ T for T in poses_local]
 
 
-def write_stray(out: Path, spec: PropertySpec, walk: list[str], seed: int = 0, drift: DriftModel | None = None,
-                scene: Scene | None = None, sweep: str = "full") -> dict:
+def render_lidar_frames(spec: PropertySpec, walk: list[str], seed: int = 0, drift: DriftModel | None = None,
+                        scene: Scene | None = None, sweep: str = "full", yaw_step_deg: float = 12.0,
+                        scale_bias: float | None = None, with_rgb: bool = True):
+    """Render a LiDAR walk. Returns dict(frames=[(rgb, depth, conf)], poses (true, world), odo (drifted),
+    K_rgb, K_d, scale_bias). Used by write_stray and directly by tests (no file IO)."""
     rng = np.random.default_rng(seed)
     scene = scene or build_scene(spec)
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "depth").mkdir(exist_ok=True)
-    (out / "confidence").mkdir(exist_ok=True)
-    poses = _to_world(spec, walk_trajectory(spec, walk, rng, sweep=sweep))
-    drift = drift or DriftModel(np.radians(0.06) * rng.choice([-1, 1]), np.radians(0.04), 0.008, 0.001)
+    poses = _to_world(spec, walk_trajectory(spec, walk, rng, sweep=sweep, yaw_step_deg=yaw_step_deg))
+    if drift is None:
+        drift = DriftModel(np.radians(0.06) * rng.choice([-1, 1]), np.radians(0.04), 0.008, 0.001)
     odo = apply_drift(poses, drift, rng)
     K_rgb = K_from_hfov(RGB_W, RGB_H, IPHONE_MAIN_HFOV)
     K_d = K_rgb.copy()
     K_d[:2] *= LIDAR_W / RGB_W
-    scale_bias = rng.normal(0, 0.0015)
-    vw = cv2.VideoWriter(str(out / "rgb.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (RGB_W, RGB_H))
-    rows = []
-    for i, (T, To) in enumerate(zip(poses, odo)):
-        r_rgb = render(scene, T, K_rgb, RGB_W, RGB_H, rgb=True, rng=rng)
+    if scale_bias is None:
+        scale_bias = float(rng.normal(0, 0.0015))
+    out = []
+    for T in poses:
+        rgb = render(scene, T, K_rgb, RGB_W, RGB_H, rgb=True, rng=rng)["rgb"] if with_rgb else None
         r_d = render(scene, T, K_d, LIDAR_W, LIDAR_H, rgb=False)
         depth, conf = lidar_depth(r_d["depth"], r_d["phantom"], rng, scale_bias)
+        out.append((rgb, depth, conf))
+    return {"frames": out, "poses": poses, "odo": odo, "K_rgb": K_rgb, "K_d": K_d, "scale_bias": scale_bias}
+
+
+def write_stray(out: Path, spec: PropertySpec, walk: list[str], seed: int = 0, drift: DriftModel | None = None,
+                scene: Scene | None = None, sweep: str = "full") -> dict:
+    from scipy.spatial.transform import Rotation
+    r = render_lidar_frames(spec, walk, seed, drift, scene, sweep)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "depth").mkdir(exist_ok=True)
+    (out / "confidence").mkdir(exist_ok=True)
+    K_rgb = r["K_rgb"]
+    vw = cv2.VideoWriter(str(out / "rgb.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (RGB_W, RGB_H))
+    rows = []
+    for i, ((rgb, depth, conf), To) in enumerate(zip(r["frames"], r["odo"])):
         Image.fromarray(np.round(depth * 1000).astype(np.uint16)).save(out / "depth" / f"{i:06d}.png")
         Image.fromarray(conf).save(out / "confidence" / f"{i:06d}.png")
-        vw.write(cv2.cvtColor((r_rgb["rgb"] * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
+        vw.write(cv2.cvtColor((rgb * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
         R_ar = M_AR2ZUP.T @ To[:3, :3]
         t_ar = M_AR2ZUP.T @ To[:3, 3]
-        from scipy.spatial.transform import Rotation
         q = Rotation.from_matrix(R_ar).as_quat()  # x, y, z, w
         rows.append(f"{i * 0.1:.6f}, {i:06d}, {t_ar[0]:.6f}, {t_ar[1]:.6f}, {t_ar[2]:.6f}, "
                     f"{q[0]:.7f}, {q[1]:.7f}, {q[2]:.7f}, {q[3]:.7f}, {K_rgb[0,0]:.4f}, {K_rgb[1,1]:.4f}, "
@@ -266,8 +281,20 @@ def write_stray(out: Path, spec: PropertySpec, walk: list[str], seed: int = 0, d
         + "\n".join(rows) + "\n")
     np.savetxt(out / "camera_matrix.csv", K_rgb, delimiter=",", fmt="%.6f")
     (out / "imu.csv").write_text("timestamp, a_x, a_y, a_z, alpha_x, alpha_y, alpha_z\n")
-    _sidecar(out, {"kind": "lidar", "true_poses": [T.tolist() for T in poses], "scale_bias": scale_bias})
-    return {"frames": len(poses)}
+    _sidecar(out, {"kind": "lidar", "true_poses": [T.tolist() for T in r["poses"]], "scale_bias": r["scale_bias"]})
+    return {"frames": len(r["poses"])}
+
+
+def lidar_frames_as_frames(r: dict, use_true_poses: bool = False):
+    """Convert render_lidar_frames output into pipeline Frames (as the Stray loader would, at 10 fps)."""
+    from ..types import Frame
+    frames = []
+    for i, ((rgb, depth, conf), T, To) in enumerate(zip(r["frames"], r["poses"], r["odo"])):
+        frames.append(Frame(index=i, T_wc=(T if use_true_poses else To).copy(), K=r["K_d"].copy(), depth=depth,
+                            conf=conf.astype(np.float32) / 2.0,
+                            load_image=(lambda im=rgb: (im * 255).astype(np.uint8)) if rgb is not None else None,
+                            timestamp=i * 0.1, name=f"{i:06d}"))
+    return frames
 
 
 def write_video(out_dir: Path, spec: PropertySpec, walk: list[str], seed: int = 0, scene: Scene | None = None) -> dict:
