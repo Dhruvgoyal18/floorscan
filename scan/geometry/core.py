@@ -301,7 +301,11 @@ def _detect_lines(ctx) -> tuple[list[Line], dict]:
                 hp = tb[zs > header_z]
                 hdr[np.clip(((hp - grids[b][0]) / gstep).astype(int), 0, len(hdr) - 1)] = True
                 hdr = ndimage.binary_dilation(hdr, iterations=1)
-                occ = ndimage.binary_closing(occ, iterations=2)
+                # bridge unobserved patches (<= 0.6 m) in the header band / wall coverage: a grazing-angle
+                # view can miss the strip above a doorway; open-plan archways are wider than this
+                gap = np.ones(int(round(0.6 / gstep)) + 1, bool)
+                hdr = ndimage.binary_closing(hdr, structure=gap) | hdr
+                occ = ndimage.binary_closing(occ, structure=gap) | occ
                 std = float(pts[:, a].std())
                 se = _se(std, _n_eff(tb, zs), sig)
                 lines.append(Line(a, facing, float(c), se, int(m.sum()), float(zspan), hdr, occ))
@@ -668,6 +672,8 @@ def _filter_mirror_points(ctx, lines, rooms, warnings):
             mlabels = np.unique(lab[ti[par][hit], zi[par][hit]])
             mlabels = mlabels[mlabels > 0]
             inreg = np.isin(lab[ti, zi], mlabels)
+            if inreg.any() and _has_jamb_reveals(P, N, F, cams, l, cross[inreg], b):
+                continue   # a doorway into a near-identical room, not a mirror: mirrors have no reveals
             drop[idx[inreg]] = True
             if inreg.any():
                 ctx.setdefault("mirrors", []).append(
@@ -682,6 +688,21 @@ def _filter_mirror_points(ctx, lines, rooms, warnings):
         for k in ("P", "N", "pl", "S", "F"):
             ctx[k] = ctx[k][keep]
         ctx["n_mirror_points"] = int(drop.sum())
+
+
+def _has_jamb_reveals(P, N, F, cams, l: Line, cross: np.ndarray, b: int) -> bool:
+    """True if both side edges of a see-through region show jamb reveal surfaces: surfaces perpendicular to
+    the wall (normal along the wall), within the wall thickness, seen from the front, at the region's left
+    and right edges. Identified by orientation, so it works at photo-tier noise levels."""
+    a = l.axis
+    t_lo, t_hi = np.percentile(cross[:, b], [2, 98])
+    z_lo, z_hi = np.percentile(cross[:, 2], [10, 90])
+    depth = (l.c - P[:, a]) * l.facing
+    front = (cams[F, a] - l.c) * l.facing > 0.05
+    rev = front & (np.abs(N[:, b]) > 0.7) & (depth > -0.03) & (depth < 0.30) & (P[:, 2] > z_lo) & (P[:, 2] < z_hi)
+    left = rev & (np.abs(P[:, b] - t_lo) < 0.06)
+    right = rev & (np.abs(P[:, b] - t_hi) < 0.06)
+    return bool(left.sum() >= 15 and right.sum() >= 15)
 
 
 def _adjacency(rooms, lines):
