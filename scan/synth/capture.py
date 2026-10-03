@@ -139,6 +139,15 @@ def single_room_photo_poses(spec: PropertySpec, room: str, rng: np.random.Genera
         yaw = np.arctan2(tgt[1] - p[1], tgt[0] - p[0])
         poses.append(look_at(np.array([p[0], p[1], 1.4 + rng.normal(0, 0.03)]), yaw + rng.normal(0, 0.03),
                              np.radians(5) + rng.normal(0, 0.02), rng.normal(0, 0.01)))
+    # protocol: long rooms/corridors (aspect > 2.5) also get one photo of each end wall from ~1.5 m
+    L_x, L_y = r.x1 - r.x0, r.y1 - r.y0
+    if max(L_x, L_y) / min(L_x, L_y) > 2.5:
+        if L_x >= L_y:
+            ends = [(np.array([r.x0 + 1.5, cy]), np.pi), (np.array([r.x1 - 1.5, cy]), 0.0)]
+        else:
+            ends = [(np.array([cx, r.y0 + 1.5]), -np.pi / 2), (np.array([cx, r.y1 - 1.5]), np.pi / 2)]
+        for p2, yaw in ends:
+            poses.append(look_at(np.array([p2[0], p2[1], 1.4]), yaw + rng.normal(0, 0.03), np.radians(5), 0.0))
     door_poses = []
     for op in spec.openings:
         n_rooms = sum(_opening_on_room_wall(spec, op, rr, ss) is not None for rr in spec.rooms for ss in SIDES)
@@ -152,13 +161,19 @@ def single_room_photo_poses(spec: PropertySpec, room: str, rng: np.random.Genera
             d = (p1 - p0) / np.linalg.norm(p1 - p0)
             n_in = np.array([-d[1], d[0]])
             c = p0 + d * (u + op.width / 2)
-            standoff = min(1.6, 0.45 * (r.x1 - r.x0 if abs(n_in[0]) > 0.5 else r.y1 - r.y0))
+            # protocol: portrait, back against the opposite wall (max 2.5 m), whole frame + ceiling above it
+            depth_room = r.x1 - r.x0 if abs(n_in[0]) > 0.5 else r.y1 - r.y0
+            standoff = min(2.5, depth_room - 0.25)
             p = c + n_in * standoff
             yaw = np.arctan2(-n_in[1], -n_in[0])
-            door_poses.append(look_at(np.array([p[0], p[1], 1.4]), yaw + rng.normal(0, 0.03), np.radians(3), 0.0))
-    if len(poses) + len(door_poses) > 8:   # brief: 2-8 stills per room; keep doors, drop corners
-        poses = poses[::2]
-    return poses + door_poses
+            T = look_at(np.array([p[0], p[1], 1.4]), yaw + rng.normal(0, 0.03), np.radians(8), 0.0)
+            door_poses.append(("portrait", T))
+    if len(poses) + len(door_poses) > 8:   # brief: 2-8 stills per room; keep doors + ends, drop corners
+        n_end = len(poses) - 4
+        poses = poses[:4][::2] + poses[4:4 + n_end]
+    if len(poses) + len(door_poses) > 8:
+        poses = poses[: max(0, 8 - len(door_poses))]
+    return [("landscape", T) for T in poses] + door_poses
 
 
 # ---------------------------------------------------------------- sensor models
@@ -344,15 +359,22 @@ def write_photos(out_dir: Path, spec: PropertySpec, rooms: list[str], seed: int 
         folder = out_dir / f"{k + 1:02d}_{rn}"
         side = folder / "_synthetic"
         side.mkdir(parents=True, exist_ok=True)
-        poses = _to_world(spec, single_room_photo_poses(spec, rn, rng))
-        for j, T in enumerate(poses):
-            r = render(scene, T, K, w, h, rgb=True, rng=rng)
+        shots = single_room_photo_poses(spec, rn, rng)
+        for j, (orient, T_l) in enumerate(shots):
+            T = spec.T_world_local @ T_l
+            if orient == "portrait":   # sensor rotated: image is h x w with the same focal length
+                Kp = np.array([[K[0, 0], 0, h / 2], [0, K[1, 1], w / 2], [0, 0, 1.0]])
+                r = render(scene, T, Kp, h, w, rgb=True, rng=rng)
+                Kuse = Kp
+            else:
+                r = render(scene, T, K, w, h, rgb=True, rng=rng)
+                Kuse = K
             name = f"IMG_{1000 + n:04d}"
             Image.fromarray((r["rgb"] * 255).astype(np.uint8)).save(folder / f"{name}.jpg", quality=92,
                                                                      exif=_exif_bytes(IPHONE_UW_35MM))
             z = r["depth"][::4, ::4]
             np.savez_compressed(side / f"{name}.npz", depth=np.where(np.isfinite(z), z, 0).astype(np.float16),
-                                K=K, stride=4, T_wc=T)
+                                K=Kuse, stride=4, T_wc=T)
             n += 1
     _sidecar(out_dir, {"kind": "photo", "rooms": rooms})
     return {"photos": n}

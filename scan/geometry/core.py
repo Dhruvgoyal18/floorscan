@@ -39,6 +39,7 @@ class CoreConfig:
     jamb_search: float = 0.15
     unobserved_se: float = 0.25          # se for a wall/edge never observed
     bootstrap: int = 0                   # frame-bootstrap resamples for the resampling term (0 = off)
+    single_room: bool = False            # photo tier: one folder = one room (all cameras stand in it)
     seed: int = 0
 
 
@@ -184,8 +185,10 @@ def extract_plan(obs: Observations, cfg: CoreConfig | None = None) -> PlanEst:
     far = obs.rays_far @ R.T if len(obs.rays_far) else np.zeros((0, 3))
     if len(far):
         far[:, 2] -= floor_w
+    samp = P[np.linspace(0, len(P) - 1, min(len(P), 5000)).astype(int)]
+    spacing = float(np.median(cKDTree(P).query(samp, k=2)[0][:, 1])) if len(P) > 10 else cfg.voxel
     ctx = dict(P=P, N=N, pl=pl, S=S, F=F, cams=cams, far=far, far_f=obs.rays_far_frame, sigma_med=sigma_med,
-               ceil_g=ceil_g, cfg=cfg)
+               ceil_g=ceil_g, cfg=cfg, spacing=spacing)
 
     lines, grids = _detect_lines(ctx)
     ctx["grids"] = grids
@@ -212,7 +215,9 @@ def _detect_lines(ctx) -> tuple[list[Line], dict]:
     P, N, pl, S, cfg = ctx["P"], ctx["N"], ctx["pl"], ctx["S"], ctx["cfg"]
     sig = ctx["sigma_med"]
     ceil_g = ctx["ceil_g"]
-    header_z = min(cfg.header_height, ceil_g - 0.1)
+    # Header band: above door height AND within the top 0.3 m of the ceiling, so tall furniture
+    # (wardrobes ~2.0-2.2 m, plus scale error on thin tiers) does not split a room.
+    header_z = max(min(cfg.header_height, ceil_g - 0.1), ceil_g - 0.3)
     lo_xy = P[:, :2].min(0) - 0.5
     hi_xy = P[:, :2].max(0) + 0.5
     gstep = 0.05
@@ -231,12 +236,13 @@ def _detect_lines(ctx) -> tuple[list[Line], dict]:
             h, e = np.histogram(x, bins=bins)
             hs = ndimage.gaussian_filter1d(h.astype(float), max(1.0, sig / 0.01))
             # a wall patch of min_wall_len x 0.5 m at the working voxel size
-            min_pts = 0.3 * cfg.min_wall_len * 0.5 / cfg.voxel**2 * (0.01 / max(0.01, win)) * 2
-            peaks, _ = find_peaks(hs, height=max(min_pts, 0.02 * hs.max()), distance=max(3, int(2 * win / 0.01)))
+            # low bar on the histogram (far, sparsely sampled walls must survive); real walls are then
+            # told apart from clutter by support, vertical extent and length below
+            peaks, _ = find_peaks(hs, height=max(5.0, 0.004 * hs.max()), distance=max(3, int(2 * win / 0.01)))
             for pk in peaks:
                 c0 = (e[pk] + e[pk + 1]) / 2
                 m = np.abs(x - c0) < win
-                if m.sum() < 30:
+                if m.sum() < 120:
                     continue
                 c = x[m].mean()
                 m = np.abs(x - c) < win
@@ -304,6 +310,7 @@ def _segment_rooms(ctx, lines: list[Line], warnings: list[str]) -> list[RoomEst]
             blk = cov[a0:max(a1, a0 + 1), b0:max(b1, b0 + 1)]
             frac[i, j] = blk.mean() if blk.size else 0.0
     interior = frac >= cfg.cover_thresh
+    ctx["debug_cells"] = (xs, ys, frac)
 
     def separated(axis, coord, t0, t1):
         g = grids[1 - axis]
@@ -345,19 +352,45 @@ def _segment_rooms(ctx, lines: list[Line], warnings: list[str]) -> list[RoomEst]
                     stack.append((c, d))
             comps.append(cells)
 
-    rooms = []
+    from shapely import contains_xy
     n_frames = len(cams)
-    for cells in comps:
+    polys = [unary_union([box(xs[a], ys[b], xs[a + 1], ys[b + 1]) for a, b in cells]) for cells in comps]
+    ncam = [int(contains_xy(p, cams[:, 0], cams[:, 1]).sum()) for p in polys]
+    keep = []
+    for k, poly in enumerate(polys):
+        minx, miny, maxx, maxy = poly.bounds
+        if poly.area >= cfg.min_room_area and min(maxx - minx, maxy - miny) >= cfg.min_room_side \
+                and ncam[k] >= max(2, 0.01 * n_frames):
+            keep.append(k)
+    if cfg.single_room:
+        # every camera stands in the one room: any component holding a camera is a piece of it
+        # (spurious lines in narrow, sparsely photographed spaces can cut it up)
+        with_cam = [k for k in range(len(polys)) if ncam[k] > 0 and polys[k].area > 0.05]
+        if with_cam:
+            main = max(with_cam, key=lambda k: (ncam[k], polys[k].area))
+            grow = True
+            members = {main}
+            while grow:
+                grow = False
+                for k in with_cam:
+                    if k not in members and any(polys[k].intersection(polys[m]).length > 0.05 for m in members):
+                        members.add(k)
+                        grow = True
+            comps[main] = [c for m in members for c in comps[m]]
+            polys[main] = unary_union([polys[m] for m in members])
+            ncam[main] = sum(ncam[m] for m in members)
+            for m in members - {main}:
+                ncam[m] = -1
+            keep = [main] if polys[main].area >= cfg.min_room_area else []
+    merged = {k: list(comps[k]) for k in keep}
+
+    rooms = []
+    for k in keep:
+        cells = merged[k]
         poly = unary_union([box(xs[a], ys[b], xs[a + 1], ys[b + 1]) for a, b in cells])
         if poly.geom_type != "Polygon":
             poly = max(poly.geoms, key=lambda g: g.area)
-        minx, miny, maxx, maxy = poly.bounds
-        if poly.area < cfg.min_room_area or min(maxx - minx, maxy - miny) < cfg.min_room_side:
-            continue
-        from shapely import contains_xy
-        n_in = int(contains_xy(poly, cams[:, 0], cams[:, 1]).sum())
-        if n_in < max(2, 0.01 * n_frames):
-            continue
+        n_in = ncam[k]
         if len(poly.interiors):
             warnings.append("room with an interior hole (column / unobserved island) - hole ignored")
             poly = Polygon(poly.exterior)
@@ -402,7 +435,17 @@ def _bind_walls(ring: np.ndarray, lines: list[Line]) -> list[WallEst]:
 def _line_estimate(ctx, wall: WallEst, lines: list[Line], z_top: float) -> Estimate:
     """Re-estimate a wall's plane coordinate from points on this room's stretch of the line."""
     if wall.line is None:
+        # never-observed wall: bound the room by where its floor/ceiling coverage ends, and say so
         c = wall.start[1] if wall.axis == 1 else wall.start[0]
+        P, N = ctx["P"], ctx["N"]
+        a, b = wall.axis, 1 - wall.axis
+        t0, t1 = wall.t_range
+        hz = (np.abs(N[:, 2]) > 0.7) & (P[:, b] > t0) & (P[:, b] < t1)
+        inward = -wall.facing  # direction pointing out of the room along axis a
+        side = (P[:, a] - c) * inward <= 0
+        vals = P[hz & side, a]
+        if len(vals) > 50:
+            c = float(np.percentile(vals, 99 if inward > 0 else 1))
         return Estimate(float(c), ctx["cfg"].unobserved_se, observed=False)
     l = lines[wall.line]
     P, N = ctx["P"], ctx["N"]

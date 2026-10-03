@@ -16,7 +16,11 @@ from scipy import ndimage
 from ..types import Estimate
 from .core import Line, OpeningEst, RoomEst, WallEst, _se
 
-CELL = 0.02
+CELL = 0.02   # default grid cell on the wall plane; adapted to point spacing per capture (see _cell)
+
+
+def _cell(ctx) -> float:
+    return float(np.clip(1.5 * ctx.get("spacing", 0.015), 0.02, 0.08))
 # Any point observed *behind* the wall face by a camera in front of it proves the ray crossed the
 # plane at an open spot (it may land on the far room, the threshold floor, or the jamb reveal itself).
 # Only noise can fake it, so the threshold is a few sigma.
@@ -33,6 +37,7 @@ def _see_through(ctx, w: WallEst, l: Line, c: float, height: float):
     P, F, cams, far, far_f = ctx["P"], ctx["F"], ctx["cams"], ctx["far"], ctx["far_f"]
     a, b, f = l.axis, 1 - l.axis, l.facing
     t0, t1 = w.t_range
+    CELL = _cell(ctx)
     nt, nz = int(np.ceil((t1 - t0) / CELL)), int(np.ceil(height / CELL))
     see = np.zeros((nt, nz), np.int32)
     for Q, fr, is_far in ((P, F, False), (far, far_f, True)):
@@ -59,6 +64,7 @@ def _occupancy(ctx, w, l, c, height, sig):
     P = ctx["P"]
     a, b, f = l.axis, 1 - l.axis, l.facing
     t0, t1 = w.t_range
+    CELL = _cell(ctx)
     nt, nz = int(np.ceil((t1 - t0) / CELL)), int(np.ceil(height / CELL))
     depth = (c - P[:, a]) * f
     win = max(0.03, 2.5 * sig)
@@ -116,6 +122,8 @@ def _level(ctx, l, c, t_l, t_r, z_guess, sig):
 def detect_openings(ctx, lines, room: RoomEst, warnings: list[str]) -> list[OpeningEst]:
     out: list[OpeningEst] = []
     sig = ctx["sigma_med"]
+    CELL = _cell(ctx)
+    vclose = max(3, int(round(0.22 / CELL)))
     height = room.ceil_z.value
     for k, w in enumerate(room.walls):
         if w.line is None or w.length.value < 0.4:
@@ -125,7 +133,7 @@ def detect_openings(ctx, lines, room: RoomEst, warnings: list[str]) -> list[Open
         occ = _occupancy(ctx, w, l, c, height, sig)
         open_ = (see >= 1) & (occ <= 1)
         # bridge thin horizontal gaps (rays at camera height go far and are sparse) before labelling
-        open_ = ndimage.binary_closing(open_, structure=np.ones((3, 11)), iterations=1)
+        open_ = ndimage.binary_closing(open_, structure=np.ones((3, vclose)), iterations=1)
         open_ = ndimage.binary_closing(open_, structure=np.ones((3, 3)), iterations=2)
         open_ = ndimage.binary_opening(open_, structure=np.ones((3, 3)), iterations=1)
         lab, n = ndimage.label(open_)
@@ -136,8 +144,7 @@ def detect_openings(ctx, lines, room: RoomEst, warnings: list[str]) -> list[Open
             za, zb = zi.min() * CELL, (zi.max() + 1) * CELL
             fill = len(ti) / max(1, (np.ptp(ti) + 1) * (np.ptp(zi) + 1))
             width_g = tb - ta
-            dens = float(np.median(see[lab == comp]))
-            if dens < 2:
+            if see[lab == comp].sum() < 30:
                 continue
             # Below the see-through region: a window has wall (occupied face) under its sill; a door has
             # none -- the bottom of a doorway is often simply not looked at (or hidden by furniture).
