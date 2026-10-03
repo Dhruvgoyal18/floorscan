@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "floorscan"
+version = "0.1.0"
+description = "Phone capture (photos / video / LiDAR) to dimensioned, stitched floor plan with damage + scope, with calibrated intervals."
+requires-python = ">=3.10"
+authors = [{ name = "Dhruv", email = "dhruv@apas.ai" }]
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "shapely>=2.0",
+  "opencv-python-headless>=4.9",
+  "pillow>=10.0",
+  "pillow-heif>=0.16",
+  "jsonschema>=4.20",
+  "matplotlib>=3.8",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Learned backends for the video/photo tiers. Weights are fetched by scripts/fetch_weights.py.
+models = ["torch>=2.2", "torchvision>=0.17", "transformers>=4.45", "huggingface_hub>=0.24"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+scan = "scan.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["scan*", "eval*"]
+
+[tool.setuptools.package-data]
+scan = ["schema/*.json", "calibrate/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["slow: end-to-end tests that render synthetic captures (seconds to a minute)"]

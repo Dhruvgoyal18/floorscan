@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apas.ai/floorscan/output.schema.json",
+  "title": "floorscan capture result",
+  "description": "One capture in, one of these out. Every measurement is a {value, ci90} object; no bare numbers for anything measured.",
+  "type": "object",
+  "required": ["schema_version", "capture_id", "tier", "device", "pipeline_version", "rooms", "stitched", "damage", "concealed_flags", "scope", "quality", "timing_s"],
+  "additionalProperties": false,
+  "$defs": {
+    "measure": {
+      "type": "object",
+      "required": ["value", "ci90"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {"type": "number"},
+        "ci90": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+        "observed": {"type": "boolean", "description": "false when the value is inferred (e.g. wall never seen); interval is then deliberately wide"}
+      }
+    },
+    "point2": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "wall": {
+      "type": "object",
+      "required": ["id", "start_m", "end_m", "length_m", "height_m", "net_area_m2"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string"},
+        "start_m": {"$ref": "#/$defs/point2"},
+        "end_m": {"$ref": "#/$defs/point2"},
+        "length_m": {"$ref": "#/$defs/measure"},
+        "height_m": {"$ref": "#/$defs/measure"},
+        "net_area_m2": {"$ref": "#/$defs/measure"}
+      }
+    },
+    "opening": {
+      "type": "object",
+      "required": ["id", "type", "wall_id", "offset_m", "width_m", "height_m"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string"},
+        "type": {"enum": ["door", "window", "opening"]},
+        "wall_id": {"type": "string"},
+        "offset_m": {"type": "number", "description": "distance from wall start to the opening's near jamb"},
+        "width_m": {"$ref": "#/$defs/measure"},
+        "height_m": {"$ref": "#/$defs/measure"},
+        "sill_m": {"$ref": "#/$defs/measure"},
+        "connects_to": {"type": ["string", "null"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "room": {
+      "type": "object",
+      "required": ["id", "name", "polygon_m", "walls", "ceiling_height_m", "floor_area_m2", "perimeter_m", "openings"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "polygon_m": {"type": "array", "items": {"$ref": "#/$defs/point2"}, "minItems": 3},
+        "walls": {"type": "array", "items": {"$ref": "#/$defs/wall"}, "minItems": 3},
+        "ceiling_height_m": {"$ref": "#/$defs/measure"},
+        "floor_area_m2": {"$ref": "#/$defs/measure"},
+        "perimeter_m": {"$ref": "#/$defs/measure"},
+        "openings": {"type": "array", "items": {"$ref": "#/$defs/opening"}},
+        "source": {"type": "string", "description": "input group the room came from (photo folder name, fragment range)"}
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "capture_id": {"type": "string"},
+    "tier": {"enum": ["lidar", "video", "photo"]},
+    "device": {"type": "string"},
+    "pipeline_version": {"type": "string"},
+    "backend": {"type": "string"},
+    "units": {"const": "metric"},
+    "rooms": {"type": "array", "items": {"$ref": "#/$defs/room"}, "minItems": 1},
+    "stitched": {
+      "type": "object",
+      "required": ["adjacency", "net_floor_area_m2", "gross_footprint_m2", "overlap_m2", "drift"],
+      "additionalProperties": false,
+      "properties": {
+        "adjacency": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["rooms", "kind"],
+            "additionalProperties": false,
+            "properties": {
+              "rooms": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2},
+              "kind": {"enum": ["door", "opening", "shared_wall"]},
+              "via": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        },
+        "net_floor_area_m2": {"$ref": "#/$defs/measure"},
+        "gross_footprint_m2": {"$ref": "#/$defs/measure"},
+        "overlap_m2": {"type": "number", "minimum": 0},
+        "method": {"type": "string"},
+        "drift": {
+          "type": "object",
+          "required": ["method", "enabled"],
+          "additionalProperties": true,
+          "properties": {
+            "method": {"type": "string"},
+            "enabled": {"type": "boolean"},
+            "loop_closure_error_m": {"type": ["number", "null"]},
+            "n_fragments": {"type": "integer"},
+            "n_loop_edges": {"type": "integer"}
+          }
+        }
+      }
+    },
+    "damage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "class", "surface_id", "area_m2", "extent_m", "centroid_height_m", "score"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "class": {"enum": ["water_stain", "mould", "crack", "hole", "peeling_paint", "missing_tile"]},
+          "surface_id": {"type": "string"},
+          "area_m2": {"$ref": "#/$defs/measure"},
+          "extent_m": {
+            "type": "object", "required": ["width", "height"], "additionalProperties": false,
+            "properties": {"width": {"$ref": "#/$defs/measure"}, "height": {"$ref": "#/$defs/measure"}}
+          },
+          "centroid_height_m": {"type": "number"},
+          "bbox_on_surface_m": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+          "score": {"type": "number", "minimum": 0, "maximum": 1},
+          "n_views": {"type": "integer"}
+        }
+      }
+    },
+    "concealed_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["surface_id", "rule", "rationale", "evidence"],
+        "additionalProperties": false,
+        "properties": {
+          "surface_id": {"type": "string"},
+          "rule": {"type": "string"},
+          "rationale": {"type": "string"},
+          "evidence": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "scope": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "surface_id", "action", "quantity", "unit", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "surface_id": {"type": "string"},
+          "action": {"type": "string"},
+          "quantity": {"$ref": "#/$defs/measure"},
+          "unit": {"enum": ["m2", "m", "each"]},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "required": ["warnings"],
+      "additionalProperties": true,
+      "properties": {
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "calibration": {"type": "string"}
+      }
+    },
+    "timing_s": {"type": "object", "additionalProperties": {"type": "number"}},
+    "artifacts": {"type": "object", "additionalProperties": {"type": "string"}}
+  }
+}
