@@ -1,0 +1,50 @@
+{
+ "status": "fitted LORO on synthetic benchmark (14 captures)",
+ "target": 0.9,
+ "k": {
+  "lidar": 3.507,
+  "video": 4.471,
+  "photo": 11.0
+ },
+ "k_kind": {
+  "lidar": {
+   "wall_length": 3.804,
+   "ceiling_height": 2.381,
+   "floor_area": 6.243,
+   "opening_width": 4.84,
+   "opening_height": 2.371
+  },
+  "video": {
+   "wall_length": 5.639,
+   "ceiling_height": 5.381,
+   "floor_area": 8.206,
+   "opening_width": 2.273,
+   "opening_height": 5.095
+  },
+  "photo": {
+   "wall_length": 12.203,
+   "ceiling_height": 12.076,
+   "floor_area": 42.191,
+   "opening_width": 3.505,
+   "opening_height": 21.534
+  }
+ },
+ "floor_rel": {
+  "lidar": 0.002,
+  "video": 0.01,
+  "photo": 0.03
+ },
+ "floor_abs": {
+  "wall_length": 0.003,
+  "ceiling_height": 0.003,
+  "opening_width": 0.004,
+  "opening_height": 0.005,
+  "floor_area": 0.02,
+  "footprint": 0.05,
+  "damage_area": 0.002,
+  "perimeter": 0.01,
+  "quantity": 0.0,
+  "wall_area": 0.02,
+  "damage_extent": 0.01
+ }
+}

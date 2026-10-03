@@ -34,8 +34,8 @@ No capture at hand? `make synthetic` renders the synthetic benchmark (same file 
 
 ```bash
 make test            # seam tests (geometry core, drift, eval harness)  ~1 min
-make test-all        # + end-to-end CLI tests on rendered captures        ~4 min
-make benchmark       # render (deterministic) + run + score -> reports/synthetic/benchmark.md
+make test-all        # + end-to-end CLI tests on rendered captures        ~5 min
+make benchmark       # render (~20 min, deterministic) + run + score (~35 min) -> reports/synthetic/benchmark.md
 make benchmark-real  # real captures listed in data/benchmark_real.yaml -> reports/real/benchmark.md
 make fixloop         # regenerates the fix-loop before/after runs from git tags
 make reproduce       # all of the above
@@ -65,4 +65,19 @@ reports/         generated benchmark + technical report
 docs/            brief, plan, spec, ADR-style notes;  NOTES.md = decision log
 ```
 
+## Where things stand
+
+* **Results**: [`reports/synthetic/benchmark.md`](reports/synthetic/benchmark.md) (generated) and the 3-page
+  [`reports/technical_report.pdf`](reports/technical_report.pdf). All numbers so far are **synthetic**. Captures
+  are rendered in the real app formats; video and photo run through an oracle stand-in for the learned model. Real
+  captures go in `data/raw/real/` with laser ground truth (`data/gt/TEMPLATE.yaml`). Then run `make benchmark-real`.
+* **Fix loop**: [`fixloop/DECLARATION.md`](fixloop/DECLARATION.md) (committed before the fix),
+  [`fixloop/RESULT.md`](fixloop/RESULT.md) (before/after + post-mortem), [`fixloop/fix.diff`](fixloop/fix.diff).
+* **Calibration**: `scan/calibrate/calibration.json` is fitted on the synthetic benchmark and labelled interim.
+  Refit it on real captures before relying on intervals.
+* **Learned backends**: MapAnything and Depth-Anything adapters are written against the upstream APIs but have not
+  been run here (no Hugging Face access while building). Run `make setup-models`, then process one real video before
+  the walk-in.
+
 Design decisions and why: [`NOTES.md`](NOTES.md). Requirement coverage: [`COMPLIANCE.md`](COMPLIANCE.md).
+Pretrained models and licences: [`docs/DISCLOSURE.md`](docs/DISCLOSURE.md).

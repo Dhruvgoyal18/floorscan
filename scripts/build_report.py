@@ -26,7 +26,15 @@ th { background: #f0f0f0; } code { font-size: 8.2pt; } img { max-width: 100%; }
 def main():
     src = ROOT / "reports" / "technical_report.md"
     out = ROOT / "reports" / "technical_report.pdf"
-    html = markdown.markdown(src.read_text(), extensions=["tables", "fenced_code", "md_in_html"])
+    lines, prev = [], ""
+    for ln in src.read_text().splitlines():   # python-markdown needs a blank line before a list
+        is_item = ln.lstrip().startswith(("* ", "- ")) or re.match(r"\s*\d+\. ", ln)
+        prev_item = prev.lstrip().startswith(("* ", "- ")) or re.match(r"\s*\d+\. ", prev) or prev.startswith("  ")
+        if is_item and prev.strip() and not prev_item:
+            lines.append("")
+        lines.append(ln)
+        prev = ln
+    html = markdown.markdown("\n".join(lines), extensions=["tables", "fenced_code", "md_in_html"])
     doc = f"<html><head><meta charset='utf-8'><style>{CSS}</style></head><body>{html}</body></html>"
     tmp = ROOT / "reports" / "_report.html"
     tmp.write_text(doc)

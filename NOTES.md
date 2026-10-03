@@ -44,3 +44,14 @@ Running log of design decisions and why. Newest at the bottom. This doubles as t
 - wall-thickness strips joined rooms through dilated coverage -> strips need both faces + real coverage
 - absolute-sigma windows on video cut rooms apart -> surface-thickness windows
 - photo adjacency via doorway pairs, not post-hoc centre proximity
+
+## Fix loop and review (2026-10-03, late)
+- Worst gate: photo-tier stitch (2/2 failing). Declaration committed before the fix; two root causes confirmed
+  (header gap leak, doorway-as-mirror); the gate still fails on one-sided doorway detection (third defect).
+  See fixloop/RESULT.md.
+- Two-axis code review (spec, standards) by sub-agents found path-seeded synthetic noise (numbers would differ on
+  another machine), shared noise across takes, missing intervals on offsets, an unconnected-room bug in the photo
+  solver and several eval matching bugs. All fixed in one commit. The fix-loop tags were rebuilt on
+  content-seeded noise; the originals are kept as fixloop-v1-*.
+- Shipped calibration = synthetic LORO fit, labelled interim. The prior (k=2-3) was ~4x too narrow for the photo
+  tier on the synthetic benchmark.

@@ -23,7 +23,7 @@ def gate_rows(s):
         rows.append((f"wall lengths ({t})", f"{o['share_within']:.1%} within {o['tolerance_rel']:.0%}", o["pass"],
                      f"median {o['median_rel_err_pct']:.2f} %"))
     for r in g["drift_ablation"]:
-        rows.append((f"drift ablation ({r['tier']})", f"{r['footprint_err_pct_on']:+.2f} % vs {r['footprint_err_pct_off']:+.2f} % off",
+        rows.append((f"drift ablation ({r['capture']})", f"{r['footprint_err_pct_on']:+.2f} % vs {r['footprint_err_pct_off']:+.2f} % off",
                      abs(r["footprint_err_pct_on"]) <= abs(r["footprint_err_pct_off"]), ""))
     for r in g["photo_stitch"]["rows"]:
         ok = r["adjacency_correct"] and r["overlap_m2"] <= 0.05 and abs(r["footprint_rel_err_pct"]) <= 8 and r["gt_in_ci90"]
