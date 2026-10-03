@@ -1,0 +1,15 @@
+# Copy to data/benchmark_real.yaml once captured. Paths are relative to the repo root.
+name: real
+captures:
+  - {id: home1_multiroom_lidar_t1, property: home1, set: multiroom, tier: lidar, take: 1,
+     path: data/raw/real/home1/multiroom/lidar/t1, rooms: [hall, living, kitchen, bed1], holdout: false,
+     device: iPhone 15 Pro}
+  - {id: home1_multiroom_video_t1, property: home1, set: multiroom, tier: video, take: 1,
+     path: data/raw/real/home1/multiroom/video/t1/IMG_0001.MOV, rooms: [hall, living, kitchen, bed1], holdout: false,
+     device: iPhone 15 Pro}
+  - {id: home1_multiroom_photo_t1, property: home1, set: multiroom, tier: photo, take: 1,
+     path: data/raw/real/home1/multiroom/photo/t1, rooms: [hall, living, kitchen, bed1], holdout: false,
+     device: iPhone 15 Pro}
+  # furnished damage room, three takes per tier for repeatability:
+  - {id: home1_bed1_lidar_t1, property: home1, set: damage, tier: lidar, take: 1,
+     path: data/raw/real/home1/bed1/lidar/t1, rooms: [bed1], holdout: false, device: iPhone 15 Pro}

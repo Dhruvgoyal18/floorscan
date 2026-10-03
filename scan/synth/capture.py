@@ -273,9 +273,9 @@ def render_lidar_frames(spec: PropertySpec, walk: list[str], seed: int = 0, drif
 
 
 def write_stray(out: Path, spec: PropertySpec, walk: list[str], seed: int = 0, drift: DriftModel | None = None,
-                scene: Scene | None = None, sweep: str = "full") -> dict:
+                scene: Scene | None = None, sweep: str = "full", yaw_step_deg: float = 12.0) -> dict:
     from scipy.spatial.transform import Rotation
-    r = render_lidar_frames(spec, walk, seed, drift, scene, sweep)
+    r = render_lidar_frames(spec, walk, seed, drift, scene, sweep, yaw_step_deg=yaw_step_deg)
     out.mkdir(parents=True, exist_ok=True)
     (out / "depth").mkdir(exist_ok=True)
     (out / "confidence").mkdir(exist_ok=True)
@@ -314,14 +314,15 @@ def lidar_frames_as_frames(r: dict, use_true_poses: bool = False):
     return frames
 
 
-def write_video(out_dir: Path, spec: PropertySpec, walk: list[str], seed: int = 0, scene: Scene | None = None) -> dict:
+def write_video(out_dir: Path, spec: PropertySpec, walk: list[str], seed: int = 0, scene: Scene | None = None,
+                yaw_step_deg: float = 12.0) -> dict:
     """Handheld walkthrough at 10 fps (keyframe sampler is time-based, so fps is irrelevant downstream)."""
     rng = np.random.default_rng(seed)
     scene = scene or build_scene(spec)
     out_dir.mkdir(parents=True, exist_ok=True)
     side = out_dir / "_synthetic"
     side.mkdir(exist_ok=True)
-    poses = _to_world(spec, walk_trajectory(spec, walk, rng, sweep="full"))
+    poses = _to_world(spec, walk_trajectory(spec, walk, rng, sweep="full", yaw_step_deg=yaw_step_deg))
     K = K_from_hfov(RGB_W, RGB_H, IPHONE_MAIN_HFOV)
     vw = cv2.VideoWriter(str(out_dir / "walkthrough.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (RGB_W, RGB_H))
     depths = []
