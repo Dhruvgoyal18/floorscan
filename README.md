@@ -17,7 +17,7 @@ How to capture: [`capture/PROTOCOL.md`](capture/PROTOCOL.md) (one page). What ea
 Requires Python ≥ 3.10 and `make` (Linux/macOS; on Windows use WSL, or run the commands inside the Makefile by hand).
 
 ```bash
-git clone <repo> floorscan && cd floorscan
+git clone https://github.com/Dhruvgoyal18/floorscan.git floorscan && cd floorscan
 make setup                         # venv + package (~2 min). Enough for the LiDAR tier.
 make setup-models                  # video/photo tiers: torch, MapAnything, weights (~1.3 GB, once)
 .venv/bin/scan run path/to/capture # one command per capture; tier is auto-detected
